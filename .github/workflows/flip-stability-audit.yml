@@ -1,0 +1,33 @@
+name: Mini Flip broad stability audit
+on:
+  push:
+    branches: [mini-flip-stability]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y cppcheck
+      - name: Analyze Onion source
+        run: |
+          mkdir -p audit-results
+          cppcheck --enable=warning,performance,portability --inconclusive --std=c11 --suppress=missingIncludeSystem -Isrc/common -Iinclude --template=gcc src 2> audit-results/cppcheck.txt > audit-results/progress.txt
+      - name: Inventory shipped ELF binaries
+        run: |
+          find static/build -type f -print0 | while IFS= read -r -d '' file; do
+            if file -b "$file" | grep -q '^ELF'; then
+              echo "FILE: $file"
+              sha256sum "$file"
+              readelf -h "$file" | grep -E 'Class:|Machine:|Type:'
+              readelf -d "$file" | grep -E 'NEEDED|RPATH|RUNPATH' || true
+            fi
+          done > audit-results/binary-inventory.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mini-flip-broad-audit
+          path: audit-results/
+          retention-days: 30
