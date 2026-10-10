@@ -38,6 +38,7 @@
 #include "utils/str.h"
 
 #include "./input_fd.h"
+#include "./lid.h"
 #include "./menuButtonAction.h"
 
 #define FAVORITES_PATH "/mnt/SDCARD/Roms/favourite.json"
@@ -281,16 +282,36 @@ void suspend_exec(int timeout)
 
     uint32_t repeat_power = 0;
     uint32_t killexit = 0;
+    uint32_t suspend_start = (uint32_t)getMilliseconds();
+    bool lid_supported = lid_read() != -1;
+    bool lid_was_closed = lid.stable == 0;
 
     while (1) {
-        int ready = poll(fds, 1, timeout);
+        int poll_timeout = timeout;
+        if (lid_supported) {
+            poll_timeout = LID_POLL_MS;
+            if (timeout >= 0) {
+                uint32_t elapsed = (uint32_t)getMilliseconds() - suspend_start;
+                int remaining = elapsed >= (uint32_t)timeout ? 0 : timeout - (int)elapsed;
+                if (remaining < poll_timeout)
+                    poll_timeout = remaining;
+            }
+            lid_update(&lid, lid_read(), (uint32_t)getMilliseconds());
+            if (lid.stable == 0)
+                lid_was_closed = true;
+            if (lid_was_closed && lid.stable == 1 && lid.candidate == 1)
+                break;
+        }
+        int ready = poll(fds, 1, poll_timeout);
 
         if (ready > 0) {
             read(input_fd, &ev, sizeof(ev));
-            if ((ev.type != EV_KEY) || (ev.value > REPEAT))
-                continue;
-            if (ev.code == HW_BTN_POWER) {
-                if (ev.value == RELEASED)
+            if (ev.type == EV_KEY && ev.value >= RELEASED && ev.value <= REPEAT &&
+                ev.code == HW_BTN_POWER) {
+                if (lid_supported && (lid.stable == 0 || lid.candidate == 0)) {
+                    repeat_power = 0;
+                }
+                else if (ev.value == RELEASED)
                     break;
                 else if (ev.value == PRESSED)
                     repeat_power = 0;
@@ -302,7 +323,8 @@ void suspend_exec(int timeout)
                     }
                 }
             }
-            else if (ev.value == RELEASED) {
+            else if (ev.type == EV_KEY && ev.value == RELEASED &&
+                     !(lid_supported && (lid.stable == 0 || lid.candidate == 0))) {
                 if (ev.code == HW_BTN_MENU) {
                     // screenshot
                     system_powersave_off();
@@ -312,12 +334,29 @@ void suspend_exec(int timeout)
                 }
             }
         }
-        else if (!ready && !battery_isCharging()) {
+        bool expired = lid_supported
+                           ? timeout >= 0 && (uint32_t)getMilliseconds() - suspend_start >= (uint32_t)timeout
+                           : ready == 0;
+        if (expired && !battery_isCharging()) {
             // shutdown
             system_powersave_off();
             resume();
             usleep(150000);
             deepsleep();
+            if (lid_supported) {
+                // Auto-save can refuse shutdown. Keep the closed device asleep.
+                if (!temp_flag_get("stay_awake")) {
+                    suspend(0);
+                    setVolume(0);
+                }
+                system_powersave_on();
+            }
+        }
+        if (expired && lid_supported) {
+            // Avoid spinning while charging or if this app cannot auto-save.
+            suspend_start = (uint32_t)getMilliseconds();
+            if (timeout == 0)
+                timeout = LID_POLL_MS;
         }
     }
 
@@ -491,9 +530,24 @@ int main(void)
     volatile bool needWriteSettings = false;
 
     time_t fav_last_modified = time(NULL);
+    bool lid_supported = lid_read() != -1;
 
     while (1) {
-        if (poll(fds, 1, (CHECK_SEC - elapsed_sec) * 1000) > 0) {
+        if (lid_supported) {
+            lid_update(&lid, lid_read(), (uint32_t)getMilliseconds());
+            if (lid.stable == 0 && lid.candidate == 0) {
+                settings_load();
+                system_state_update();
+                turnOffScreen();
+                hibernate_start = getMilliseconds();
+                ticks = hibernate_start;
+                elapsed_sec = 0;
+            }
+        }
+        int input_timeout = (CHECK_SEC - elapsed_sec) * 1000;
+        if (lid_supported && input_timeout > LID_POLL_MS)
+            input_timeout = LID_POLL_MS;
+        if (poll(fds, 1, input_timeout) > 0) {
             if (!keyinput_isValid())
                 continue;
             val = ev.value;
@@ -891,6 +945,11 @@ int main(void)
             if (elapsed_sec < CHECK_SEC)
                 continue;
         }
+
+        // Lid polling must not speed up the ordinary maintenance interval.
+        elapsed_sec = ((uint32_t)getMilliseconds() - (uint32_t)ticks) / 1000;
+        if (lid_supported && elapsed_sec < CHECK_SEC)
+            continue;
 
         // Comes here every CHECK_SEC(def:15) seconds interval
         if (delete_flag) {

@@ -1,0 +1,40 @@
+name: Build Mini Flip lid patch
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - src/keymon/**
+      - test/test_lid.c
+      - .github/workflows/mini-flip-lid.yml
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test sensor debounce
+        run: |
+          cc -std=c99 -Wall -Wextra test/test_lid.c -o /tmp/test_lid
+          /tmp/test_lid
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    container:
+      image: aemiii91/miyoomini-toolchain:latest
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build key monitor
+        shell: bash
+        run: |
+          source /root/.bashrc
+          mkdir -p "$GITHUB_WORKSPACE/lid-patch/.tmp_update/bin"
+          make -C src/keymon BUILD_DIR="$GITHUB_WORKSPACE/lid-patch/.tmp_update/bin"
+          test -s lid-patch/.tmp_update/bin/keymon
+          cp MINI-FLIP-LID.md lid-patch/README.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Onion-4.4-beta-Mini-Flip-lid-patch
+          path: lid-patch/
+          include-hidden-files: true
