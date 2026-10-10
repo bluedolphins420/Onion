@@ -60,7 +60,7 @@ Source commit and successful validation run are in BUILD-INFO.json.
 files={}
 for folder in ['App/AllOverlays','App/RestoreAllOverlays']:
  for p in (repo/'static/build'/folder).rglob('*'):
-  if p.is_file() and 'current' not in p.parts:files[p.relative_to(repo/'static/build').as_posix()]=p.read_bytes()
+  if p.is_file() and p.name!='last-run.log' and 'current' not in p.parts:files[p.relative_to(repo/'static/build').as_posix()]=p.read_bytes()
 key='.tmp_update/script/mini_flip_display.sh'
 files[key]=(repo/'static/build'/key).read_bytes()
 files['INSTALL.txt']=readme.encode()
@@ -70,7 +70,7 @@ provenance['package_source_commit']=subprocess.check_output(['git','rev-parse','
 files['BUILD-INFO.json']=(json.dumps(provenance,indent=2)+'\n').encode()
 for name,data in list(files.items()):
  if name.endswith(('.sh','.cfg','.filt','.txt','.json','.c','.h','.md')):files[name]=data.replace(b'\r\n',b'\n')
-archive=out/'Community4-All-System-Overlays.zip'
+archive=out/'Community4-All-System-Overlays-Fix1.zip'
 with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
  for name,data in sorted(files.items()):
   entry=zipfile.ZipInfo(name,(2026,10,10,0,0,0));entry.create_system=3

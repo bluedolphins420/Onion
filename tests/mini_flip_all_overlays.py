@@ -59,6 +59,10 @@ with tempfile.TemporaryDirectory(dir=BASE,prefix='SD card ') as td:
  arcade.write_bytes(first);run('restore');assert all(p.read_bytes()==s for p,s in originals.items())
  run('apply');assert (sd/'Saves/CurrentProfile/.mini-flip-all-overlays-v1/active').read_text().strip()=='2'
  before=globalcfg.read_bytes();(sd/'display.lock').mkdir();run('apply',1);(sd/'display.lock').rmdir();assert globalcfg.read_bytes()==before
+ # A dead owner is recoverable; a missing optional jq must not block consoles.
+ (sd/'display.lock').mkdir();(sd/'display.lock/pid').write_text('99999999')
+ run('apply',MINIFLIP_JQ='/missing/jq')
+ assert not (sd/'display.lock').exists()
  run('bad',2);run('apply',2,MINIFLIP_RES='bad')
  (sd/'App/AllOverlays/assets/752x560/lcd.png').unlink();run('apply',1);assert globalcfg.read_bytes()==before
  print('PASS real shell: global/core/game/template coverage, PS1 exclusions, GB/GBC/GBA preservation, colors/remaps/saves intact, native resolutions, later edits, restore cycles, lock and invalid/missing-asset guards; actual jq changed only DraStic overlay.')

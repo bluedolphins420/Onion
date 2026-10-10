@@ -1,6 +1,15 @@
 #!/bin/sh
 # Overlay-only extension for Community4. Preserve handheld color options.
 set -eu
+stage=initialization
+fail() { echo "ERROR: $*"; exit 1; }
+report_exit() {
+    result=$?
+    if [ "$result" != 0 ]; then echo "FAILED stage=$stage status=$result"; fi
+    if [ "${locked:-0}" = 1 ]; then rm -f "$lock/pid"; rmdir "$lock"; fi
+    exit "$result"
+}
+trap report_exit EXIT
 [ "${DEVICE_ID:-0}" = 285 ] || exit 0
 sd=${MINIFLIP_SD:-/mnt/SDCARD}
 app="$sd/App/AllOverlays"
@@ -8,16 +17,25 @@ profile="$sd/Saves/CurrentProfile"
 state="$profile/.mini-flip-all-overlays-v1"
 action=${1:-apply}
 case "$action" in apply|restore|boot) ;; *) exit 2 ;; esac
-[ -d "$profile/config" ] || exit 1
+[ -d "$profile/config" ] || fail "Missing Saves/CurrentProfile/config"
 if [ "$action" = boot ] && [ ! -f "$state/enabled" ]; then exit 0; fi
 res=640x480
 [ ! -f /tmp/new_res_available ] || res=752x560
 res=${MINIFLIP_RES:-$res}
 case "$res" in 752x560|640x480) ;; *) exit 2 ;; esac
 lock=${MINIFLIP_LOCK:-/tmp/mini_flip_display.lock}
-mkdir "$lock" 2>/dev/null || exit 1
+stage=lock
+if ! mkdir "$lock" 2>/dev/null; then
+    owner=$(cat "$lock/pid" 2>/dev/null || true)
+    case "$owner" in ''|*[!0-9]*) fail "Display lock exists without a valid owner; restart the device" ;; esac
+    if kill -0 "$owner" 2>/dev/null; then fail "Display setup is already running; retry shortly"; fi
+    rm -f "$lock/pid"
+    rmdir "$lock" || fail "Cannot clear old display lock"
+    mkdir "$lock" || fail "Cannot acquire display lock"
+fi
+locked=1
 echo $$ > "$lock/pid"
-trap 'rm -f "$lock/pid"; rmdir "$lock"' EXIT
+stage=backup_state
 trap 'exit 1' HUP INT TERM
 mkdir -p "$state"
 cycle=$(cat "$state/active" 2>/dev/null || echo 0)
@@ -43,10 +61,11 @@ if [ "$action" = restore ]; then
     sync
     exit "$conflicts"
 fi
+stage=asset_checks
 for kind in tv lcd crt; do
-    [ -s "$app/assets/$res/$kind.png" ] && [ -s "$app/assets/$res/$kind.cfg" ] || exit 1
+    [ -s "$app/assets/$res/$kind.png" ] && [ -s "$app/assets/$res/$kind.cfg" ] || fail "Missing $res/$kind assets; copy the full App folder"
 done
-[ -s "$app/filters/crt.filt" ] && [ -s "$app/filters/mini_flip_crt.so" ] || exit 1
+[ -s "$app/filters/crt.filt" ] && [ -s "$app/filters/mini_flip_crt.so" ] || fail "Missing CRT filter; copy the full App folder"
 # Stable paths let changing hardware resolution select the right native PNG
 # without overwriting any game overrides or user changes at each boot.
 if [ "$(cat "$app/current/resolution" 2>/dev/null || true)" != "$res" ]; then
@@ -59,7 +78,8 @@ if [ "$(cat "$app/current/resolution" 2>/dev/null || true)" != "$res" ]; then
     mv "$app/current/resolution.tmp" "$app/current/resolution"
 fi
 [ "$action" != boot ] || exit 0
-[ -s "$sd/RetroArch/.retroarch/retroarch.cfg" ] || exit 1
+[ -s "$sd/RetroArch/.retroarch/retroarch.cfg" ] || fail "Missing RetroArch/.retroarch/retroarch.cfg"
+stage=manifest
 if [ "$cycle" = 0 ] || [ -f "$session/restored" ]; then
     cycle=$((cycle+1));session="$state/snapshot-$cycle";mkdir -p "$session"
     echo "$cycle" > "$state/active.tmp";mv "$state/active.tmp" "$state/active"
@@ -87,12 +107,19 @@ if [ "$action" = apply ]; then
     } | sort -u > "$session/files.tmp"
     mv "$session/files.tmp" "$session/files"
 fi
+nds_ready=0
+stage=optional_DS_check
 if grep -q '^Emu/NDS/' "$session/files"; then
     jq=${MINIFLIP_JQ:-$sd/.tmp_update/bin/jq}
-    [ -x "$jq" ] || exit 1
-    "$jq" -e 'type == "object" and has("overlay")' "$sd/Emu/NDS/resources/settings.json" >/dev/null || exit 1
+    if [ -x "$jq" ] && "$jq" -e 'type == "object" and has("overlay")' "$sd/Emu/NDS/resources/settings.json" >/dev/null; then
+        nds_ready=1
+    else
+        echo "NOTE: DS settings skipped; JSON tool or settings unavailable. Console overlays will still apply."
+    fi
 fi
 while IFS= read -r rel; do
+    stage="configuration: $rel"
+    if [ "$rel" = Emu/NDS/resources/settings.json ] && [ "$nds_ready" != 1 ]; then continue; fi
     dst="$sd/$rel"
     kind=tv
     case "$rel" in
