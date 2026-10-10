@@ -53,6 +53,8 @@
 #define PIDMAX 32
 
 uint32_t suspendpid[PIDMAX];
+static LidState lid = {-1, -1, 0};
+static bool lid_supported;
 
 const int KONAMI_CODE[] = {HW_BTN_UP, HW_BTN_UP, HW_BTN_DOWN, HW_BTN_DOWN,
                            HW_BTN_LEFT, HW_BTN_RIGHT, HW_BTN_LEFT, HW_BTN_RIGHT,
@@ -283,30 +285,22 @@ void suspend_exec(int timeout)
     uint32_t repeat_power = 0;
     uint32_t killexit = 0;
     uint32_t suspend_start = (uint32_t)getMilliseconds();
-    bool lid_supported = lid_read() != -1;
     bool lid_was_closed = lid.stable == 0;
 
     while (1) {
         int poll_timeout = timeout;
         if (lid_supported) {
-            poll_timeout = LID_POLL_MS;
-            if (timeout >= 0) {
-                uint32_t elapsed = (uint32_t)getMilliseconds() - suspend_start;
-                int remaining = elapsed >= (uint32_t)timeout ? 0 : timeout - (int)elapsed;
-                if (remaining < poll_timeout)
-                    poll_timeout = remaining;
-            }
+            poll_timeout = lid_sleep_poll_timeout(timeout, suspend_start,
+                                                  (uint32_t)getMilliseconds());
             lid_update(&lid, lid_read(), (uint32_t)getMilliseconds());
-            if (lid.stable == 0)
-                lid_was_closed = true;
-            if (lid_was_closed && lid.stable == 1 && lid.candidate == 1)
+            if (lid_should_wake(&lid, &lid_was_closed))
                 break;
         }
         int ready = poll(fds, 1, poll_timeout);
 
         if (ready > 0) {
-            read(input_fd, &ev, sizeof(ev));
-            if (ev.type == EV_KEY && ev.value >= RELEASED && ev.value <= REPEAT &&
+            bool valid = read(input_fd, &ev, sizeof(ev)) == sizeof(ev);
+            if (valid && ev.type == EV_KEY && ev.value >= RELEASED && ev.value <= REPEAT &&
                 ev.code == HW_BTN_POWER) {
                 if (lid_supported && (lid.stable == 0 || lid.candidate == 0)) {
                     repeat_power = 0;
@@ -323,7 +317,7 @@ void suspend_exec(int timeout)
                     }
                 }
             }
-            else if (ev.type == EV_KEY && ev.value == RELEASED &&
+            else if (valid && ev.type == EV_KEY && ev.value == RELEASED &&
                      !(lid_supported && (lid.stable == 0 || lid.candidate == 0))) {
                 if (ev.code == HW_BTN_MENU) {
                     // screenshot
@@ -335,7 +329,7 @@ void suspend_exec(int timeout)
             }
         }
         bool expired = lid_supported
-                           ? timeout >= 0 && (uint32_t)getMilliseconds() - suspend_start >= (uint32_t)timeout
+                           ? lid_sleep_expired(timeout, suspend_start, (uint32_t)getMilliseconds())
                            : ready == 0;
         if (expired && !battery_isCharging()) {
             // shutdown
@@ -530,7 +524,7 @@ int main(void)
     volatile bool needWriteSettings = false;
 
     time_t fav_last_modified = time(NULL);
-    bool lid_supported = lid_read() != -1;
+    lid_supported = lid_read() != -1;
 
     while (1) {
         if (lid_supported) {
@@ -539,6 +533,13 @@ int main(void)
                 settings_load();
                 system_state_update();
                 turnOffScreen();
+                // Standby consumes key releases; clear shortcut state on wake.
+                button_flag = repeat_LR = repeat_power = 0;
+                b_BTN_Not_Menu_Pressed = b_BTN_Menu_Pressed = power_pressed = false;
+                volUp_state = volUp_active = volDown_state = volDown_active = false;
+                comboKey_volume = comboKey_menu = comboKey_select = false;
+                menuAndAPressed = menuAndBPressed = false;
+                menuAndAPressedTime = menuAndBPressedTime = 0;
                 hibernate_start = getMilliseconds();
                 ticks = hibernate_start;
                 elapsed_sec = 0;
@@ -976,7 +977,8 @@ int main(void)
         if (hibernate_time && !temp_flag_get("stay_awake")) {
             if (ticks - hibernate_start > hibernate_time * 60 * 1000) {
                 suspend_exec(SHUTDOWN_MIN * 60000);
-                hibernate_start = ticks;
+                hibernate_start = getMilliseconds();
+                ticks = hibernate_start;
             }
         }
 
