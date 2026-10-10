@@ -43,48 +43,66 @@ for f in (ASSETS/'profiles').rglob('*.cfg'):
 print(f'PASS {count} geometry/PNG/profile checks; every overlay alpha and grid coordinate verified.')
 
 def exercise(shell):
-    with tempfile.TemporaryDirectory(prefix='display test ') as td:
+    with tempfile.TemporaryDirectory(prefix='display reset test ') as td:
         sd=Path(td);profile=sd/'Saves/CurrentProfile';config=profile/'config';config.mkdir(parents=True)
         shutil.copytree(ASSETS,sd/'.tmp_update/res/display')
-        target=config/'Gambatte/Gambatte.cfg';target.parent.mkdir();original='# keep this\naudio_latency = "64"\nvideo_filter = "old.filt"\nvideo_filter = "duplicate.filt"\ninput_player1_a = "9"\n';target.write_text(original)
+        target=config/'Gambatte/Gambatte.cfg';target.parent.mkdir();original='audio_latency = "99"\nvideo_filter = "old.filt"\ninput_player1_a = "9"\n';target.write_text(original)
         game=target.parent/'My Game.cfg';game.write_text('input_overlay = "custom.cfg"\n')
         directory=target.parent/'GB.cfg';directory.write_text('video_scale_integer = "false"\n')
-        state=profile/'.mini-flip-display-v1'
+        extra=config/'Unknown Core/nested/Old Game.cfg';extra.parent.mkdir(parents=True);extra.write_text('old = "yes"\n')
+        protected={target.parent/'Gambatte.opt':'old options',target.parent/'controls.rmp':'old remap',profile/'game.srm':'save data'}
+        for f,text in protected.items(): f.write_text(text)
+        state=profile/'.mini-flip-display-v2'
         env=dict(os.environ,DEVICE_ID='285',MINIFLIP_SD=str(sd),MINIFLIP_RES='752x560',MINIFLIP_LOCK=str(sd/'display.lock'))
         def run(action,code=0,**changes):
             result=subprocess.run(shell+[str(SCRIPT),action],env=dict(env,**changes),capture_output=True,text=True,timeout=30)
             assert result.returncode==code,(action,result.stdout,result.stderr)
         run('boot',DEVICE_ID='354');assert target.read_text()==original and not state.exists()
-        run('boot');cfg=parse(target.read_text());assert cfg['video_filter']=='' and cfg['audio_latency']=='64' and cfg['input_player1_a']=='9'
-        assert target.read_text().count('video_filter =')==1 and '# keep this' in target.read_text()
-        assert (state/'original/Gambatte/Gambatte.cfg').read_text()==original
-        assert game.read_text()=='input_overlay = "custom.cfg"\n' and directory.read_text()=='video_scale_integer = "false"\n'
+        run('boot');session=state/'snapshot-1';cfg=parse(target.read_text())
+        assert cfg['video_filter']=='' and 'input_player1_a' not in cfg and 'audio_latency' not in cfg
+        assert (session/'archive/Gambatte/Gambatte.cfg').read_text()==original
+        assert not game.exists() and not directory.exists() and not extra.exists()
+        assert (session/'archive/Unknown Core/nested/Old Game.cfg').read_text()=='old = "yes"\n'
+        for f,text in protected.items(): assert f.read_text()==text
+        assert parse((config/'PCSX-ReARMed/PCSX-ReARMed.cfg').read_text())['audio_driver']=='sdl'
         gba=config/'gpSP/gpSP.cfg';assert parse(gba.read_text())['video_scale_integer']=='true'
         assert parse((config/'mGBA/mGBA.cfg').read_text())['input_overlay_enable']=='false'
         assert parse((config/'TGB Dual/TGB Dual.cfg').read_text())['input_overlay_enable']=='false'
         assert parse((config/'mGBA/GBA.cfg').read_text())['input_overlay_enable']=='true'
         first=target.read_bytes();run('boot');assert target.read_bytes()==first
+        game.write_text('manual = "new"\n')
         target.write_text(target.read_text()+'user_note = "preserve"\n');edited=target.read_bytes()
-        run('boot');assert target.read_bytes()==edited
-        run('boot',MINIFLIP_RES='640x480');assert target.read_bytes()==edited
-        assert '640x480' in gba.read_text()
+        run('boot');assert target.read_bytes()==edited and game.read_text()=='manual = "new"\n'
+        run('boot',MINIFLIP_RES='640x480');assert target.read_bytes()==edited and '640x480' in gba.read_text()
         run('clean');assert parse(target.read_text())['input_overlay_enable']=='false' and 'user_note' in target.read_text()
         run('balanced');assert parse(target.read_text())['input_overlay_enable']=='true'
-        run('restore');assert parse(target.read_text())['video_filter']=='duplicate.filt' and 'user_note' in target.read_text() and not gba.exists()
-        restored=target.read_bytes()
-        run('boot');assert target.read_bytes()==restored and not gba.exists()
-        run('balanced');target.write_text(target.read_text()+'later = "edit"\n');edited=target.read_bytes()
+        run('restore',1);assert target.read_text()==original and not gba.exists()
+        assert game.read_text()=='manual = "new"\n' and directory.exists() and extra.exists()
+        run('boot');assert target.read_text()==original and not gba.exists()
+        run('restore',1);assert target.read_text()==original
+        # Explicit re-enable after restore takes another snapshot and resets again.
+        run('balanced');assert (state/'active').read_text().strip()=='2' and not game.exists()
+        assert (state/'snapshot-2/archive/Gambatte/My Game.cfg').read_text()=='manual = "new"\n'
+        target.write_text(target.read_text()+'later = "edit"\n');edited=target.read_bytes()
         run('restore',1);assert target.read_bytes()==edited
-        assert (state/'original/Gambatte/Gambatte.cfg').read_text()==original
-        run('restore',1);assert target.read_bytes()==edited
-        run('balanced');(sd/'display.lock').mkdir();(sd/'display.lock/pid').write_text(str(os.getpid()))
+        # Live-lock, argument and asset failures do not mutate existing config.
+        (sd/'display.lock').mkdir();(sd/'display.lock/pid').write_text(str(os.getpid()))
         run('clean',1);(sd/'display.lock/pid').unlink();(sd/'display.lock').rmdir()
         run('bad',2);run('boot',2,MINIFLIP_RES='bad')
-        # A missing overlay aborts before config mutation.
         before=target.read_bytes();(sd/'.tmp_update/res/display/overlays/752x560/gba.png').unlink()
         run('clean',1);assert target.read_bytes()==before
-        assert game.read_text()=='input_overlay = "custom.cfg"\n'
-    print('PASS migration controls under '+ ' '.join(shell)+': model guard, merge, backups, idempotence, resolution change, clean/balanced, restore conflicts, lock, malformed input and missing assets.')
+        for f,text in protected.items(): assert f.read_text()==text
+    # Simulate interruption after one atomic archive move, before reset completion.
+    with tempfile.TemporaryDirectory() as td:
+        sd=Path(td);profile=sd/'Saves/CurrentProfile';config=profile/'config';config.mkdir(parents=True)
+        shutil.copytree(ASSETS,sd/'.tmp_update/res/display')
+        state=profile/'.mini-flip-display-v2';session=state/'snapshot-1';archive=session/'archive';archive.mkdir(parents=True)
+        (state/'active').write_text('1\n');(session/'reset-files').write_text('already.cfg\npending.cfg\n')
+        (archive/'already.cfg').write_text('saved');(config/'pending.cfg').write_text('pending')
+        result=subprocess.run(shell+[str(SCRIPT),'boot'],env=dict(os.environ,DEVICE_ID='285',MINIFLIP_SD=str(sd),MINIFLIP_RES='752x560',MINIFLIP_LOCK=str(sd/'display.lock')),capture_output=True,text=True,timeout=30)
+        assert result.returncode==0,result.stderr
+        assert (archive/'already.cfg').read_text()=='saved' and (archive/'pending.cfg').read_text()=='pending' and not (config/'pending.cfg').exists()
+    print('PASS reset migration under '+ ' '.join(shell)+': all old CFG overrides archived, stock core requirements seeded, options/remaps/saves intact, manual edits persist, repeated boot/restore, resolution fallback, snapshot cycles, interruption recovery and failure guards.')
 exercise(['sh'])
 if shutil.which('busybox'): exercise(['busybox','sh'])
 else: raise RuntimeError('BusyBox target-shell validation required')

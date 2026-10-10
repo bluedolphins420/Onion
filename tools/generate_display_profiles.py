@@ -1,6 +1,7 @@
 """Generate original low-opacity overlays and matching Miyoo scaler defaults."""
 from pathlib import Path
 import json,struct,zlib
+import shutil
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'static/build/.tmp_update/res/display'
 def png(path,w,h,pixels):
@@ -18,6 +19,10 @@ for c in ['gpSP','Beetle GBA','VBA-M','VBA Next']: profiles[c+'/'+c+'.cfg']=('gb
 profiles['mGBA/GBA.cfg']=('gba',True,True)
 profiles['Beetle NeoPop/Beetle NeoPop.cfg']=('ngp',True,True)
 for c in ['Gearsystem','Genesis Plus GX','PicoDrive']: profiles[c+'/GG.cfg']=('clean',False,False)
+baseline=ROOT/'static/configs/Saves/CurrentProfile/config'
+for f in baseline.rglob('*.cfg'):
+    dst=OUT/'baseline'/f.relative_to(baseline);dst.parent.mkdir(parents=True,exist_ok=True)
+    dst.write_bytes(f.read_bytes())
 geometry={}
 for w,h in [(752,560),(640,480)]:
     res=f'{w}x{h}';d=OUT/'overlays'/res;d.mkdir(parents=True,exist_ok=True)
