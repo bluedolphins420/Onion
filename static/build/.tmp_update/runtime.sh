@@ -262,10 +262,16 @@ launch_main_ui() {
 
     # MainUI launch
     cd $miyoodir/app
+    mainui_libs="$miyoodir/lib:/config/lib:/lib"
+    if [ "$mainui_srcname" = "MainUI-open" ]; then
+        mainui_libs="$sysdir/lib:$mainui_libs"
+    fi
     PATH="$miyoodir/app:$PATH" \
-        LD_LIBRARY_PATH="$miyoodir/lib:/config/lib:/lib" \
+        LD_LIBRARY_PATH="$mainui_libs" \
         LD_PRELOAD="$miyoodir/lib/libpadsp.so" \
         ./MainUI 2>&1 > /dev/null
+    mainui_status=$?
+    recover_main_ui "$mainui_status"
 
     # Merge the last game launched into the recent list
     check_hide_recents
@@ -804,9 +810,24 @@ check_hide_recents() {
 
 mainui_target=$miyoodir/app/MainUI
 
-mount_main_ui() {
+select_main_ui() {
     mainui_mode=$([ -f $sysdir/config/.showExpert ] && echo "expert" || echo "clean")
     mainui_srcname="MainUI-$DEVICE_ID-$mainui_mode"
+    if [ "$DEVICE_ID" = "285" ] && [ -f "$sysdir/config/.openMainUI" ] &&
+        [ -x "$sysdir/bin/MainUI-open" ]; then
+        mainui_srcname="MainUI-open"
+    fi
+}
+
+recover_main_ui() {
+    if [ "$mainui_srcname" = "MainUI-open" ] && [ "$1" -ge 126 ]; then
+        log "Open MainUI failed ($1); restoring original launcher"
+        rm -f "$sysdir/config/.openMainUI" /tmp/cmd_to_run.sh
+    fi
+}
+
+mount_main_ui() {
+    select_main_ui
     mainui_mount=$(basename "$(cat /proc/self/mountinfo | grep $mainui_target | cut -d' ' -f4)")
 
     if [ "$mainui_mount" != "$mainui_srcname" ]; then

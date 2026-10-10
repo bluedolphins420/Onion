@@ -115,11 +115,11 @@
  * That separation is part of the shell API, not just a logging preference.
  */
 
-static long now_ms(void)
+static uint64_t now_ms(void)
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
+    return (uint64_t)ts.tv_sec * 1000U + (uint64_t)ts.tv_nsec / 1000000U;
 }
 
 static void lg(const char *fmt, ...)
@@ -196,7 +196,7 @@ int main(int argc, char *argv[])
     struct fb_var_screeninfo v, chk;
     struct fb_fix_screeninfo f;
     uint32_t want_y_virtual;
-    long t0;
+    uint64_t t0;
 
     /*
      * Argument parsing intentionally stays small: fbmode is an internal Onion
@@ -346,10 +346,11 @@ int main(int argc, char *argv[])
             chk.xres == (uint32_t)want_x &&
             chk.yres == (uint32_t)want_y &&
             chk.xres_virtual == (uint32_t)want_x &&
-            chk.yres_virtual == want_y_virtual)
+            chk.yres_virtual == want_y_virtual &&
+            chk.bits_per_pixel == 32)
             break;
 
-        if (now_ms() - t0 > timeout_ms) {
+        if (now_ms() - t0 > (uint64_t)(timeout_ms < 0 ? 0 : timeout_ms)) {
             lg("TIMEOUT: driver reports %ux%u virtual %ux%u",
                chk.xres, chk.yres, chk.xres_virtual, chk.yres_virtual);
             close(fd);
@@ -384,6 +385,12 @@ int main(int argc, char *argv[])
      * into an out-of-range framebuffer write.
      */
     if (f.smem_len) {
+        if (!f.line_length || chk.yres > SIZE_MAX / f.line_length ||
+            (size_t)f.line_length * chk.yres > SIZE_MAX / (size_t)pages) {
+            lg("invalid framebuffer byte size");
+            close(fd);
+            return 2;
+        }
         size_t page_bytes = (size_t)f.line_length * chk.yres;
         size_t clear_len = page_bytes * (size_t)pages;
 
@@ -427,8 +434,8 @@ int main(int argc, char *argv[])
      *     --no-clear was explicitly requested);
      *   - scanout is parked on page 0.
      */
-    lg("%dx%d latched in %ldms, %d pages, pitch %u",
-       want_x, want_y, now_ms() - t0, pages, f.line_length);
+    lg("%dx%d latched in %llums, %d pages, pitch %u",
+       want_x, want_y, (unsigned long long)(now_ms() - t0), pages, f.line_length);
 
     /* Keep fb0 open briefly when requested. On this driver that gives the
      * incoming process time to open the framebuffer before this transition

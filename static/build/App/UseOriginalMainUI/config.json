@@ -1,0 +1,6 @@
+{
+  "label": "Use original MainUI",
+  "icon": "../../Icons/Default/app/pacman.png",
+  "launch": "launch.sh",
+  "description": "Select the launcher used when returning to the menu."
+}
