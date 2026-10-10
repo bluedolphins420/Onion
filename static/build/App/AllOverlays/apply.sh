@@ -38,8 +38,12 @@ echo $$ > "$lock/pid"
 stage=backup_state
 trap 'exit 1' HUP INT TERM
 mkdir -p "$state"
-cycle=$(cat "$state/active" 2>/dev/null || echo 0)
-case "$cycle" in ''|*[!0-9]*) exit 1 ;; esac
+stage=read_snapshot_number
+cycle=0
+if [ -f "$state/active" ]; then
+    IFS= read -r cycle < "$state/active" || [ -n "$cycle" ] || fail "Empty snapshot number"
+fi
+case "$cycle" in ''|*[!0-9]*) fail "Invalid snapshot number" ;; *) : ;; esac
 session="$state/snapshot-$cycle"
 if [ "$action" = restore ]; then
     rm -f "$state/enabled"
