@@ -461,6 +461,13 @@ void suspend_exec(int timeout, bool lid_triggered)
                 break;
             if ((ev.type != EV_KEY) || (ev.value > REPEAT))
                 continue;
+            // Pocket presses must not resume a closed Mini Flip. Keep the
+            // last valid lid state across transient sensor failures; lid-open
+            // wake and the normal sleep/shutdown timeout are handled above.
+            if (DEVICE_ID == MIYOO285 && suspend_lid_state == 0) {
+                repeat_power = 0;
+                continue;
+            }
             if (ev.code == HW_BTN_POWER) {
                 if (ev.value == RELEASED)
                     break;

@@ -36,7 +36,7 @@ def check(name, code, cases, link_flags=()):
 sleep = fixtures['SLEEP_STUBS'].replace('#include <stdio.h>', '#include <stdio.h>\n#include <errno.h>')
 sleep = sleep.replace('void keyinput_disable(void) {}', 'bool keyinput_disable(void) {return true;}')
 sleep = sleep.replace('int scenario, polls,', 'int last_lid_state=-1;\nint scenario, polls,')
-sleep = sleep.replace('if(scenario==5) return 0;', 'if(scenario>=5 && scenario!=6) return 0;')
+sleep = sleep.replace('if(scenario==5) return 0;', 'if(scenario>=5 && scenario!=6) return polls>=5?1:0;')
 sleep = sleep.replace('assert(++polls<=5);', '''assert(++polls<=5);
     fds[0].revents=POLLIN;
     if(scenario==11) {fds[0].revents=POLLHUP;return 1;}
