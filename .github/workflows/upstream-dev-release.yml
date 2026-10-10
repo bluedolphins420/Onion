@@ -1,0 +1,59 @@
+name: Build upstream v4.5-dev installer
+on:
+  workflow_dispatch:
+  push:
+    branches: [upstream-dev-release]
+    paths: [.github/workflows/upstream-dev-release.yml]
+permissions:
+  contents: read
+concurrency:
+  group: upstream-dev-release
+  cancel-in-progress: true
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container:
+      image: aemiii91/miyoomini-toolchain@sha256:e5123590ad75d27f0f4c91196e3119a255cad45f3ae15243e29a8e0a2ec50132
+      options: --user root
+    steps:
+      - name: Check out unchanged upstream source
+        uses: actions/checkout@v4
+        with:
+          repository: OnionUI/Onion
+          ref: 2bab767e4a17b1b489f02c9fb6af8dde310d4c3e
+          submodules: recursive
+      - name: Build complete SD card installer
+        shell: bash
+        run: |
+          source /root/.bashrc
+          make release VERSION_OVERRIDE=4.5-dev-2bab767
+      - name: Verify archives and record provenance
+        shell: bash
+        run: |
+          7z t release/Onion-v4.5-dev-2bab767.zip
+          7z t dist/miyoo/app/.tmp_update/onion.pak
+          7z t dist/RetroArch/retroarch.pak
+          test -s build/.tmp_update/bin/keymon
+          test -s build/.tmp_update/bin/tweaks
+          readelf -h build/.tmp_update/bin/keymon | grep 'Machine:.*ARM'
+          test -s dist/.tmp_update/updater
+          test -s dist/miyoo/app/.tmp_update/install.sh
+          cd release
+          sha256sum Onion-v4.5-dev-2bab767.zip > SHA256SUMS.txt
+          {
+            echo 'Unofficial build of unchanged OnionUI/Onion v4.5-dev source.'
+            echo 'Upstream commit: 2bab767e4a17b1b489f02c9fb6af8dde310d4c3e'
+            echo 'Version label override: 4.5-dev-2bab767'
+            echo 'Hardware validation: not performed.'
+            echo "Build: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo 'Submodule revisions:'
+            git -C .. submodule status --recursive
+          } > BUILD-INFO.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Onion-v4.5-dev-2bab767-installer
+          path: release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
