@@ -1,0 +1,6 @@
+{
+  "label": "All system overlays",
+  "icon": "../../Icons/Default/app/retroarch.png",
+  "launch": "launch.sh",
+  "description": "Mini Flip overlays for RetroArch and DraStic; PS1 excluded."
+}

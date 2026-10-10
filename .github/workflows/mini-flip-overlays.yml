@@ -1,0 +1,21 @@
+name: Validate Mini Flip overlay extension
+on:
+  push:
+    branches: [mini-flip-overlay-validation]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  overlays:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq gcc-arm-linux-gnueabihf qemu-user busybox-static jq
+      - name: Probe original ARM CRT filter
+        run: |
+          arm-linux-gnueabihf-gcc -O2 tests/crt_filter_probe.c -ldl -o /tmp/crt-probe
+          qemu-arm -L /usr/arm-linux-gnueabihf /tmp/crt-probe static/build/App/AllOverlays/filters/crt.so
+      - run: python3 tests/mini_flip_all_overlays.py
+      - run: python3 tests/mini_flip_display.py
+      - run: python3 tests/onion_community_compatibility.py

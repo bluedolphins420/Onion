@@ -24,7 +24,18 @@ if ! mkdir "$lock" 2>/dev/null; then
     mkdir "$lock" || exit 1
 fi
 echo $$ > "$lock/pid"
-trap 'rm -f "$lock/pid"; rmdir "$lock"' EXIT
+finish_display() {
+    result=$?
+    rm -f "$lock/pid"
+    rmdir "$lock"
+    # Optional all-system overlay add-on only refreshes resolution assets.
+    # Release the shared lock before entering its boot handler.
+    if [ "$result" = 0 ] && [ "$action" = boot ] && [ -x "$sd/App/AllOverlays/apply.sh" ]; then
+        "$sd/App/AllOverlays/apply.sh" boot || echo "All-system overlay refresh deferred."
+    fi
+    exit "$result"
+}
+trap finish_display EXIT
 trap 'exit 1' HUP INT TERM
 cycle=$(cat "$state/active" 2>/dev/null || echo 0)
 case "$cycle" in ''|*[!0-9]*) exit 1 ;; esac
