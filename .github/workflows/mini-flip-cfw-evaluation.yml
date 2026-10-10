@@ -1,0 +1,85 @@
+name: Evaluate Open MainUI against Mini Flip Onion
+on:
+  push:
+    branches: [mini-flip-cfw-evaluation]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: bluedolphins420/Onion
+          ref: 3c139904790f95d3b4c80d799287d7ef228804bd
+          path: onion
+      - uses: actions/checkout@v4
+        with:
+          repository: robcodedev/onionos-mainui-opensource
+          ref: 7212b750d738c9f767e50c0d9d16dbc51322f068
+          path: open-mainui
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends build-essential python3-pil dosfstools libsqlite3-dev libsdl1.2-dev libsdl-image1.2-dev libsdl-ttf2.0-dev
+      - name: Unit, integration and FAT32 tests
+        env:
+          MAINUI_STRICT: 1
+          MAINUI_ALLOWED_SKIPS: browser list_parity ui_adjustments
+        run: |
+          export ONION_ROOT="$GITHUB_WORKSPACE/onion"
+          make -C open-mainui -j2 check
+          make -C open-mainui check-no-hardlinks
+          make -C open-mainui check-vfat
+      - name: Address, undefined behavior and leak sanitizers
+        env:
+          MAINUI_STRICT: 1
+          MAINUI_ALLOWED_SKIPS: browser list_parity ui_adjustments
+        run: |
+          export ONION_ROOT="$GITHUB_WORKSPACE/onion"
+          make -C open-mainui -j2 check-asan
+  arm-evaluation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: aemiii91/miyoomini-toolchain@sha256:e5123590ad75d27f0f4c91196e3119a255cad45f3ae15243e29a8e0a2ec50132
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: bluedolphins420/Onion
+          ref: 3c139904790f95d3b4c80d799287d7ef228804bd
+          path: onion
+      - uses: actions/checkout@v4
+        with:
+          repository: robcodedev/onionos-mainui-opensource
+          ref: 7212b750d738c9f767e50c0d9d16dbc51322f068
+          path: open-mainui
+      - name: Compile evaluation launcher
+        shell: bash
+        run: |
+          source /root/.bashrc
+          make -C open-mainui device ONION_ROOT="$GITHUB_WORKSPACE/onion"
+          mkdir -p evaluation
+          cp open-mainui/build/onion/MainUI evaluation/MainUI-EVALUATION-ONLY
+          cp open-mainui/LICENSE open-mainui/THIRD_PARTY_NOTICES.md evaluation/
+          readelf -h open-mainui/build/onion/MainUI > evaluation/ELF.txt
+          readelf -d open-mainui/build/onion/MainUI >> evaluation/ELF.txt
+          {
+            echo 'Evaluation binary, not an installer or validated SD-card upgrade.'
+            echo 'Open MainUI v1.0.6: 7212b750d738c9f767e50c0d9d16dbc51322f068'
+            echo 'Source: https://github.com/robcodedev/onionos-mainui-opensource/tree/7212b750d738c9f767e50c0d9d16dbc51322f068'
+            echo 'Onion base: 3c139904790f95d3b4c80d799287d7ef228804bd'
+            echo 'Mini Flip display-transition dependencies need integration before adoption.'
+            echo 'Host tests intentionally permit three cases requiring unavailable private SD fixtures.'
+            echo "Build: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          } > evaluation/README.txt
+          cd evaluation
+          sha256sum MainUI-EVALUATION-ONLY > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Open-MainUI-v1.0.6-evaluation-only
+          path: evaluation/
+          retention-days: 30
