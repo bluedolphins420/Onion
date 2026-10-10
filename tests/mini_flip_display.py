@@ -1,0 +1,93 @@
+"""Validate generated geometry/assets and execute the actual migration shell."""
+from pathlib import Path
+import json,os,shutil,struct,subprocess,tempfile,zlib
+ROOT=Path(__file__).resolve().parents[1]
+ASSETS=ROOT/'static/build/.tmp_update/res/display'
+SCRIPT=ROOT/'static/build/.tmp_update/script/mini_flip_display.sh'
+geometry=json.loads((ASSETS/'geometry.json').read_text())
+allowed={'video_scale_integer','video_dingux_ipu_filter_type','video_filter','video_shader_enable','input_overlay_enable','input_overlay','input_overlay_opacity','input_overlay_auto_scale','input_overlay_auto_rotate','input_overlay_hide_in_menu','video_dingux_ipu_keep_aspect'}
+def parse(s): return dict((a.strip(),b.strip().strip('"')) for a,b in (l.split('=',1) for l in s.splitlines() if '=' in l and not l.lstrip().startswith('#')))
+count=0
+for res,items in geometry.items():
+    w,h=map(int,res.split('x'))
+    for kind,(x,y,vw,vh,scale) in items.items():
+        data=(ASSETS/'overlays'/res/(kind+'.png')).read_bytes();assert data[:8]==b'\x89PNG\r\n\x1a\n'
+        assert struct.unpack('>II',data[16:24])==(w,h)
+        at=8;compressed=b''
+        while at<len(data):
+            n=struct.unpack('>I',data[at:at+4])[0];tag=data[at+4:at+8];body=data[at+8:at+8+n]
+            assert zlib.crc32(tag+body)&0xffffffff==struct.unpack('>I',data[at+8+n:at+12+n])[0]
+            if tag==b'IDAT': compressed+=body
+            at+=n+12
+        raw=zlib.decompress(compressed);assert len(raw)==h*(w*4+1)
+        for py in range(h):
+            assert raw[py*(w*4+1)]==0
+            for px in range(w):
+                a=raw[py*(w*4+1)+1+px*4+3]
+                if kind=='tv': assert a==(14 if py%2 else 0)
+                elif x<=px<x+vw and y<=py<y+vh:
+                    assert a==(22 if (px-x)%scale==scale-1 or (py-y)%scale==scale-1 else 0)
+                else: assert a==255
+        if kind!='tv':
+            sw,sh={'gb':(160,144),'gba':(240,160),'ngp':(160,152)}[kind]
+            factor=min(w//sw,h//sh)
+            assert [x,y,vw,vh,scale]==[((w-sw*factor)//2)&~1,(h-sh*factor)//2,sw*factor,sh*factor,factor]
+        count+=1
+for f in (ASSETS/'profiles').rglob('*.cfg'):
+    cfg=parse(f.read_text());assert set(cfg)<=allowed
+    assert cfg['video_filter']=='' and cfg['video_shader_enable']=='false'
+    if cfg['input_overlay_enable']=='true':
+        p=ROOT/'static/build'/cfg['input_overlay'].removeprefix('/mnt/SDCARD/')
+        assert p.exists() and p.with_suffix('.png').exists()
+    count+=1
+print(f'PASS {count} geometry/PNG/profile checks; every overlay alpha and grid coordinate verified.')
+
+def exercise(shell):
+    with tempfile.TemporaryDirectory(prefix='display test ') as td:
+        sd=Path(td);profile=sd/'Saves/CurrentProfile';config=profile/'config';config.mkdir(parents=True)
+        shutil.copytree(ASSETS,sd/'.tmp_update/res/display')
+        target=config/'Gambatte/Gambatte.cfg';target.parent.mkdir();original='# keep this\naudio_latency = "64"\nvideo_filter = "old.filt"\nvideo_filter = "duplicate.filt"\ninput_player1_a = "9"\n';target.write_text(original)
+        game=target.parent/'My Game.cfg';game.write_text('input_overlay = "custom.cfg"\n')
+        directory=target.parent/'GB.cfg';directory.write_text('video_scale_integer = "false"\n')
+        state=profile/'.mini-flip-display-v1'
+        env=dict(os.environ,DEVICE_ID='285',MINIFLIP_SD=str(sd),MINIFLIP_RES='752x560')
+        def run(action,code=0,**changes):
+            result=subprocess.run(shell+[str(SCRIPT),action],env=dict(env,**changes),capture_output=True,text=True,timeout=30)
+            assert result.returncode==code,(action,result.stdout,result.stderr)
+        run('boot',DEVICE_ID='354');assert target.read_text()==original and not state.exists()
+        run('boot');cfg=parse(target.read_text());assert cfg['video_filter']=='' and cfg['audio_latency']=='64' and cfg['input_player1_a']=='9'
+        assert target.read_text().count('video_filter =')==1 and '# keep this' in target.read_text()
+        assert (state/'original/Gambatte/Gambatte.cfg').read_text()==original
+        assert game.read_text()=='input_overlay = "custom.cfg"\n' and directory.read_text()=='video_scale_integer = "false"\n'
+        gba=config/'gpSP/gpSP.cfg';assert parse(gba.read_text())['video_scale_integer']=='true'
+        assert parse((config/'mGBA/mGBA.cfg').read_text())['input_overlay_enable']=='false'
+        assert parse((config/'mGBA/GBA.cfg').read_text())['input_overlay_enable']=='true'
+        first=target.read_bytes();run('boot');assert target.read_bytes()==first
+        target.write_text(target.read_text()+'user_note = "preserve"\n');edited=target.read_bytes()
+        run('boot');assert target.read_bytes()==edited
+        run('boot',MINIFLIP_RES='640x480');assert target.read_bytes()==edited
+        assert '640x480' in gba.read_text()
+        run('clean');assert parse(target.read_text())['input_overlay_enable']=='false' and 'user_note' in target.read_text()
+        run('balanced');assert parse(target.read_text())['input_overlay_enable']=='true'
+        run('restore');assert parse(target.read_text())['video_filter']=='duplicate.filt' and 'user_note' in target.read_text() and not gba.exists()
+        restored=target.read_bytes()
+        run('boot');assert target.read_bytes()==restored and not gba.exists()
+        run('balanced');target.write_text(target.read_text()+'later = "edit"\n');edited=target.read_bytes()
+        run('restore',1);assert target.read_bytes()==edited
+        assert (state/'original/Gambatte/Gambatte.cfg').read_text()==original
+        run('restore',1);assert target.read_bytes()==edited
+        run('balanced');(state/'lock').mkdir();(state/'lock/pid').write_text(str(os.getpid()))
+        run('clean',1);(state/'lock/pid').unlink();(state/'lock').rmdir()
+        run('bad',2);run('boot',2,MINIFLIP_RES='bad')
+        # A missing overlay aborts before config mutation.
+        before=target.read_bytes();(sd/'.tmp_update/res/display/overlays/752x560/gba.png').unlink()
+        run('clean',1);assert target.read_bytes()==before
+        assert game.read_text()=='input_overlay = "custom.cfg"\n'
+    print('PASS migration controls under '+ ' '.join(shell)+': model guard, merge, backups, idempotence, resolution change, clean/balanced, restore conflicts, lock, malformed input and missing assets.')
+exercise(['sh'])
+if shutil.which('busybox'): exercise(['busybox','sh'])
+else: raise RuntimeError('BusyBox target-shell validation required')
+# Runtime must apply only after resolution detection has run.
+runtime=(ROOT/'static/build/.tmp_update/runtime.sh').read_text()
+assert runtime.index('    init_system\n')<runtime.index('mini_flip_display.sh')<runtime.index('    update_time\n')
+print('Display validation complete.')

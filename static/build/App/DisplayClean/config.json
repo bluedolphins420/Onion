@@ -1,0 +1,6 @@
+{
+  "label": "Clean display",
+  "icon": "../../Icons/Default/app/retroarch.png",
+  "launch": "launch.sh",
+  "description": "Mini Flip display profiles with backup and restore."
+}

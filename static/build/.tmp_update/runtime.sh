@@ -37,6 +37,7 @@ main() {
     clear_logs
 
     init_system
+    "$sysdir/script/mini_flip_display.sh" boot >> /tmp/mini_flip_display.log 2>&1 || log "Display defaults deferred; see /tmp/mini_flip_display.log"
     update_time
 
     # Remount passwd/group to add our own users
