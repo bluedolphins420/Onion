@@ -1,0 +1,99 @@
+ONION-COMPATIBLE MINI FLIP EDITION - ENGINEERING CONTRACT
+======================================================
+
+Direction
+---------
+Retain Onion's user-visible framework while progressively replacing fragile
+internals. Target the Miyoo Mini Flip (model 285), including conservative
+behavior on unknown firmware/batches. Do not confuse it with the larger,
+analog-stick Miyoo Flip. Stability takes precedence over aggressive clocks.
+
+Stability candidate 1
+---------------------
+Based on upstream 2bab767e4a17b1b489f02c9fb6af8dde310d4c3e and the tested lid
+patch. This is an incremental rebuild of Onion's open-source components,
+not a clean-room rewrite of its Linux kernel, vendor MainUI or emulator cores.
+
+Power/input:
+- Retain the working Hall sensor/device detection paths and lid behavior.
+- Bound input grabs to five attempts; abort sleep if exclusive input cannot
+  be acquired, rather than hanging indefinitely.
+- Remember CPU MHz, governor and minimum frequency separately; repeated
+  power-save requests cannot replace the original snapshot. Skip clock
+  changes if the original state cannot be read.
+- Require complete I2C transfers before using register values; failed reads
+  no longer become register writes. Handle cpuclock mapping/read failures.
+
+Battery/efficiency:
+- Cache AXP charge queries for 500 ms per process. Repeated redraws reuse
+  a sample; wrap-safe elapsed-time arithmetic refreshes the cache.
+- Treat failed battery reads as unknown or retain the last valid percentage.
+  Unknown percentage cannot trigger low-battery autosave.
+- Preserve the existing percentage/cache paths for other Onion components.
+- Finalize SQLite statements and close handles on normal/error paths.
+  Preserve pending duration if a database update fails.
+
+Files/UI:
+- Bound command output and serial/state reads; check file and allocation
+  failures. Handle partial/interrupted writes and valid descriptor zero.
+- Close installer-message handles even for empty files.
+- Check GameSwitcher surface allocation before dereferencing its pixels.
+- Avoid reading before a content-info string or past a trailing extension.
+- Show '?' for unavailable percentage in the shared theme battery renderer.
+
+Compatibility boundaries
+------------------------
+tests/onion_compatibility.json pins Git object identities for bundled build
+assets, app/emulator packages, configs, installer assets, shared libraries
+and settings.h. Tests reject changes to these surfaces in this candidate.
+Paths, theme assets, configuration schema, saves, GameSwitcher commands,
+RetroArch payloads and package conventions remain those of the baseline.
+Source-identity checks establish preservation, not runtime certification
+of every third-party app/theme. Rebuilt shared utility code still needs
+normal runtime validation.
+
+Validation
+----------
+The CI release is gated on the original 30 lid/process scenarios plus 39
+new C scenarios compiled with AddressSanitizer and UndefinedBehaviorSanitizer.
+They cover real extracted function bodies using mocked hardware, real files,
+real child commands and real SQLite operations. Sanitizer leak detection is
+disabled in the shared runner; explicit descriptor counts and SQLite close/
+statement assertions check the relevant resource lifecycles.
+A separate toolchain build compiles the full release for ARM and verifies
+the installer and its nested packages. A broad cppcheck report and ELF
+dependency inventory are retained outside the source tree.
+No hardware benchmarks, measured battery gains, or all-batch certification
+are claimed. No stock firmware or overclock/voltage default is changed.
+
+Public research basis
+---------------------
+Official Mini Flip firmware listing:
+https://lomiyoo.com/pages/firmware
+MinUI Mini Flip support and 560p SDL/charging-screen changes:
+https://github.com/shauninman/MinUI/releases/tag/v20251023-0
+Community native UI resolution and input/loop work:
+https://github.com/alvin-000/Onion/releases/tag/v4.5.0-beta-20260805
+Community lid vs power-button correction:
+https://github.com/alvin-000/Onion/releases/tag/v4.5.0-beta-20260825v2
+Release notes are maintainer evidence, not proof of support for every batch.
+No reliable complete public Mini Flip revision/firmware matrix was found.
+
+Remaining rebuild work
+----------------------
+1. Replace fragile screenshot/history parsing with bounded parsers and
+   allocation/error handling, preserving the existing command/path formats.
+2. Audit theme/image caches, UI resource ownership and rendering fallback;
+   add representative theme fixtures before changing renderer architecture.
+3. Consolidate hardware probing and long-lived battery/input services behind
+   explicit interfaces. Preserve existing helper files and command contracts.
+4. Profile startup/menu/audio/emulation before selecting optimizations.
+   A global compiler flag or overclock is not evidence of an improvement.
+5. Inventory vendor interfaces before any MainUI replacement. Preserve
+   shared libraries and framebuffer/input/audio conventions until an
+   equivalent implementation passes compatibility tests.
+
+These are follow-on engineering stages, not changes included in candidate 1.
+The broad scan still has findings, including an internal analyzer failure
+in one BatteryMonitorUI expression. A successful scan job does not mean
+Onion is defect-free or that every source path was analyzed.
