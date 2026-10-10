@@ -77,10 +77,12 @@ bool battery_isCharging(void)
         char *cmd = "cd /customer/app/ ; ./axp_test";
         int batJsonSize = 100;
         char buf[batJsonSize];
-        int charge_number;
+        int charge_number = 3;
 
         FILE *fp;
         fp = popen(cmd, "r");
+        if (!fp)
+            return true; // Unknown charge state must not trigger timed shutdown.
         if (fgets(buf, batJsonSize, fp) != NULL) {
             sscanf(buf, "{\"battery\":%*d, \"voltage\":%*d, \"charging\":%d}",
                    &charge_number);

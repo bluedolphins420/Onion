@@ -1,6 +1,7 @@
 #include <SDL/SDL.h>
 #include <SDL/SDL_ttf.h>
 #include <dirent.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
@@ -149,7 +150,8 @@ static void checkHeadphoneJack(void)
     }
 }
 
-uint32_t suspendpid[PIDMAX];
+uint32_t suspendpid[PIDMAX + 1]; // count followed by PIDMAX process IDs
+static int last_lid_state = -1;
 
 const int KONAMI_CODE[] = {HW_BTN_UP, HW_BTN_UP, HW_BTN_DOWN, HW_BTN_DOWN,
                            HW_BTN_LEFT, HW_BTN_RIGHT, HW_BTN_LEFT, HW_BTN_RIGHT,
@@ -158,6 +160,7 @@ const int KONAMI_CODE_LENGTH = sizeof(KONAMI_CODE) / sizeof(KONAMI_CODE[0]);
 
 // Forward declarations
 int read_lid_state(void);
+void resume(void);
 
 void takeScreenshot(void)
 {
@@ -195,6 +198,8 @@ int suspend(uint32_t mode)
 
     sync();
     procdp = opendir("/proc");
+    if (!procdp)
+        return -1;
 
     // Pick active processes to suspend and send SIGSTOP
     // Cond:1. PID is greater than 2(kthreadd) and not myself
@@ -212,11 +217,24 @@ int suspend(uint32_t mode)
             if ((pid > 2) && (pid != suspend_pid)) {
                 sprintf(fname, "/proc/%d/stat", pid);
                 FILE *fp = fopen(fname, "r");
-                if (fp) {
-                    fscanf(fp, "%*d %127s %c %d %*d %*d %*d %*d %u",
-                           (char *)&comm, &state, &ppid, &flags);
-                    fclose(fp);
-                }
+                if (!fp)
+                    continue;
+                char statline[512];
+                char *line = fgets(statline, sizeof(statline), fp);
+                fclose(fp);
+                if (!line)
+                    continue;
+                // The parenthesized process name can contain spaces and ')'.
+                char *name_start = strchr(statline, '(');
+                char *name_end = strrchr(statline, ')');
+                if (!name_start || !name_end || name_end < name_start ||
+                    (size_t)(name_end - name_start + 1) >= sizeof(comm) ||
+                    sscanf(name_end + 1, " %c %d %*d %*d %*d %*d %u",
+                           &state, &ppid, &flags) != 3)
+                    continue;
+                size_t name_len = name_end - name_start + 1;
+                memcpy(comm, name_start, name_len);
+                comm[name_len] = '\0';
                 if ((ppid > 2) &&
                     ((state == 'R') || (state == 'S') || (state == 'D')) &&
                     (strcmp(comm, "(sh)")) && (!(flags & PF_KTHREAD))) {
@@ -232,9 +250,14 @@ int suspend(uint32_t mode)
                         }
                     }
                     else {
-                        if (suspendpid[0] < PIDMAX) {
+                        if (suspendpid[0] == PIDMAX) {
+                            // Do not leave a partially suspended session behind.
+                            resume();
+                            closedir(procdp);
+                            return -1;
+                        }
+                        if (kill(pid, SIGSTOP) == 0) {
                             suspendpid[++suspendpid[0]] = pid;
-                            kill(pid, SIGSTOP);
                             ret++;
                         }
                     }
@@ -359,8 +382,10 @@ void deepsleep(void)
 //
 //    Suspend interface
 //
-void suspend_exec(int timeout)
+void suspend_exec(int timeout, bool lid_triggered)
 {
+    // Keep the initiating close even if the lid opens during sleep setup.
+    int suspend_lid_state = lid_triggered ? 0 : read_lid_state();
     keyinput_disable();
 
     // pause playActivity
@@ -372,7 +397,11 @@ void suspend_exec(int timeout)
     }
     else {
         // suspend processes
-        suspend(0);
+        if (suspend(0) < 0) {
+            system("playActivity resume");
+            keyinput_enable();
+            return;
+        }
         setVolume(0);
     }
     rumble(0);
@@ -382,17 +411,53 @@ void suspend_exec(int timeout)
 
     uint32_t repeat_power = 0;
     uint32_t killexit = 0;
-    int suspend_lid_state = read_lid_state(); // Store initial lid state
-    int suspend_start = getMilliseconds();
+    uint32_t suspend_start = (uint32_t)getMilliseconds();
 
     // Use shorter poll timeout for lid detection on flip devices
     int poll_timeout = (DEVICE_ID == MIYOO285) ? 500 : ((timeout == -1) ? -1 : timeout);
 
     while (1) {
         int ready = poll(fds, 1, poll_timeout);
+        if (ready < 0 && errno != EINTR)
+            break;
+
+        // Wake detection is independent of charging and incoming key events.
+        if (DEVICE_ID == MIYOO285) {
+            int current_lid = read_lid_state();
+            if (current_lid != -1) {
+                last_lid_state = current_lid;
+                if (current_lid == 1 && suspend_lid_state == 0)
+                    break;
+                suspend_lid_state = current_lid;
+            }
+        }
+
+        bool timeout_elapsed = DEVICE_ID == MIYOO285
+            ? timeout >= 0 && ((uint32_t)getMilliseconds() - suspend_start) >= (uint32_t)timeout
+            : ready == 0 && timeout >= 0;
+        if (timeout_elapsed && !battery_isCharging()) {
+            system_state_update();
+            if (system_state == MODE_GAME && !check_autosave()) {
+                // Keep a non-autosaving game paused; power/lid wake still work.
+                timeout = -1;
+                if (DEVICE_ID != MIYOO285)
+                    poll_timeout = -1;
+            }
+            else {
+                system_powersave_off();
+                resume();
+                usleep(150000);
+                deepsleep();
+                // If shutdown returns, restore the visible session normally.
+                break;
+            }
+        }
 
         if (ready > 0) {
-            read(input_fd, &ev, sizeof(ev));
+            if (!(fds[0].revents & POLLIN))
+                break; // Restore the session if the input device disappears.
+            if (read(input_fd, &ev, sizeof(ev)) != sizeof(ev))
+                break;
             if ((ev.type != EV_KEY) || (ev.value > REPEAT))
                 continue;
             if (ev.code == HW_BTN_POWER) {
@@ -418,32 +483,6 @@ void suspend_exec(int timeout)
                 }
             }
         }
-        else if (!ready && !battery_isCharging()) {
-            // Check lid state on flip devices before shutdown
-            if (DEVICE_ID == MIYOO285) {
-                int current_lid = read_lid_state();
-                if (current_lid == 1 && suspend_lid_state == 0) {
-                    print_debug("Lid opened during suspend, waking up");
-                    break;
-                }
-                suspend_lid_state = current_lid;
-                if (timeout != -1 &&
-                    (getMilliseconds() - suspend_start) >= timeout) {
-                    // Timeout elapsed: match non-flip shutdown behavior
-                    system_powersave_off();
-                    resume();
-                    usleep(150000);
-                    deepsleep();
-                }
-                continue;
-            }
-
-            // Original timeout shutdown behavior (non-flip devices)
-            system_powersave_off();
-            resume();
-            usleep(150000);
-            deepsleep();
-        }
     }
 
     // resume
@@ -466,14 +505,14 @@ void suspend_exec(int timeout)
     keyinput_enable();
 }
 
-void turnOffScreen(void)
+void turnOffScreen(bool lid_triggered)
 {
     if (settings.sleep_timer == 0) {
-        suspend_exec(-1); // no sleep timeout
+        suspend_exec(-1, lid_triggered); // no sleep timeout
     }
     else {
         int timeout = (settings.sleep_timer + SHUTDOWN_MIN) * 60000;
-        suspend_exec(timeout);
+        suspend_exec(timeout, lid_triggered);
     }
 }
 
@@ -572,7 +611,7 @@ int read_lid_state(void)
         return -1;
     }
 
-    return (buf[0] == '1') ? 1 : 0; // '1' = open, '0' = closed
+    return buf[0] == '1' ? 1 : (buf[0] == '0' ? 0 : -1);
 }
 
 //
@@ -639,7 +678,6 @@ int main(void)
     int elapsed_sec = 0;
 
     // Lid state tracking for Miyoo Mini Flip
-    int last_lid_state = -1;
     int current_lid_state = -1;
 
     if (DEVICE_ID == MIYOO285) {
@@ -745,7 +783,7 @@ int main(void)
                                 deepsleep();
                             }
                             else {
-                                turnOffScreen();
+                                turnOffScreen(false);
                             }
                         }
                     }
@@ -1072,19 +1110,15 @@ int main(void)
                 current_lid_state != last_lid_state) {
 
                 printf_debug("Lid state change: %d -> %d", last_lid_state, current_lid_state);
+                last_lid_state = current_lid_state;
 
                 if (current_lid_state == 0) {
                     printf_debug("Lid closed detected, action: %d", settings.lid_close_action);
 
                     switch (settings.lid_close_action) {
                     case 0: // Suspend
-                        if (settings.disable_standby) {
-                            deepsleep();
-                        }
-                        else {
-                            turnOffScreen();
-                            hibernate_start = getMilliseconds();
-                        }
+                        turnOffScreen(true);
+                        hibernate_start = getMilliseconds();
                         break;
                     case 1: // Shutdown
                         print_debug("Shutting down due to lid close");
@@ -1099,7 +1133,6 @@ int main(void)
                     print_debug("Lid opened detected");
                 }
 
-                last_lid_state = current_lid_state;
             }
             // Update last_lid_state even if it hasn't changed to handle initial -1 case
             else if (current_lid_state != -1 && last_lid_state == -1) {
@@ -1136,8 +1169,8 @@ int main(void)
 
         if (hibernate_time && !temp_flag_get("stay_awake")) {
             if (ticks - hibernate_start > hibernate_time * 60 * 1000) {
-                suspend_exec(SHUTDOWN_MIN * 60000);
-                hibernate_start = ticks;
+                suspend_exec(SHUTDOWN_MIN * 60000, false);
+                hibernate_start = getMilliseconds();
             }
         }
 

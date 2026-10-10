@@ -1,0 +1,54 @@
+name: Build tested Mini Flip patch 1
+on:
+  push:
+    branches: [mini-flip-patched-release]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tests/mini_flip_regression.py
+  release:
+    needs: regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container:
+      image: aemiii91/miyoomini-toolchain@sha256:e5123590ad75d27f0f4c91196e3119a255cad45f3ae15243e29a8e0a2ec50132
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build patched installer
+        shell: bash
+        run: |
+          source /root/.bashrc
+          make release VERSION_OVERRIDE=4.5-dev-miniflip-patch1
+      - name: Validate installer
+        shell: bash
+        run: |
+          7z t release/Onion-v4.5-dev-miniflip-patch1.zip
+          7z t dist/miyoo/app/.tmp_update/onion.pak
+          7z t dist/RetroArch/retroarch.pak
+          readelf -h build/.tmp_update/bin/keymon | grep 'Machine:.*ARM'
+          test -s dist/.tmp_update/updater
+          test -s dist/miyoo/app/.tmp_update/install.sh
+          cd release
+          sha256sum Onion-v4.5-dev-miniflip-patch1.zip > SHA256SUMS.txt
+          {
+            echo 'Unofficial Mini Flip patch 1; hardware validation pending.'
+            echo 'Upstream base: 2bab767e4a17b1b489f02c9fb6af8dde310d4c3e'
+            echo "Patched source commit: $GITHUB_SHA"
+            echo "Build: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          } > BUILD-INFO.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Onion-v4.5-dev-miniflip-patch1-installer
+          path: release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
