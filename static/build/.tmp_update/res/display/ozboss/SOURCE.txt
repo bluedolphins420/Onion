@@ -1,0 +1,7 @@
+OzBoss Miyoo Mini V4 overlays, retrieved 2026-10-09. Original files unmodified.
+https://www.reddit.com/r/MiyooMini/comments/1gcp8oe/miyoo_mini_v4_overlays/
+https://drive.google.com/drive/folders/1WC_ZW6A1kEhynMeDSBzCPRxc4Mk1HgJ0
+CRT: https://www.reddit.com/r/MiyooMini/comments/1gnvjr3/miyoo_mini_v4_crt_overlay/
+Artwork credit: OzBoss; GB bezel mugwomp93; GBC LED/bezel elements drkhrse; inspiration 1playerinsertcoin.
+Original readmes retained per system. These third-party assets are not claimed as original Onion GPL artwork.
+No blanket license file was supplied by the author.

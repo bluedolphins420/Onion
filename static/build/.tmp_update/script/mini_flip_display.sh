@@ -1,12 +1,12 @@
 #!/bin/sh
-# Explicit one-time reset of RetroArch .cfg overrides, with archived rollback.
+# One-time reset of CFG overrides and selected visual-core OPT files, with rollback.
 set -eu
 sd=${MINIFLIP_SD:-/mnt/SDCARD}
 [ "${DEVICE_ID:-0}" = 285 ] || exit 0
 profile="$sd/Saves/CurrentProfile"
 [ -d "$profile/config" ] || exit 0
 assets="$sd/.tmp_update/res/display"
-state="$profile/.mini-flip-display-v2"
+state="$profile/.mini-flip-display-v3"
 action=${1:-boot}
 case "$action" in boot|balanced|clean|restore) ;; *) exit 2 ;; esac
 res=640x480
@@ -78,6 +78,13 @@ src="$assets/profiles/$res/$mode"
 for cfg in "$assets/overlays/$res/"*.cfg; do
     [ -s "$cfg" ] && [ -s "${cfg%.cfg}.png" ] || exit 1
 done
+if [ "$res/$mode" = 752x560/balanced ]; then
+    for kind in gb gbc gba; do
+        [ -s "$assets/ozboss/$kind/$kind.cfg" ] && [ -s "$assets/ozboss/$kind/$kind.png" ] || exit 1
+    done
+    filters="$sd/RetroArch/.retroarch/filters/video/Offset_Custom"
+    [ -s "$filters/Offset_up10px.filt" ] && [ -s "$filters/offset_up.so" ] || exit 1
+fi
 # A new snapshot is needed only initially or after an explicit restore.
 # Existing snapshots are retained, never overwritten.
 if [ "$cycle" = 0 ] || [ -f "$session/restored" ]; then
@@ -89,7 +96,7 @@ if [ "$cycle" = 0 ] || [ -f "$session/restored" ]; then
 fi
 if [ ! -f "$session/reset-complete" ]; then
     if [ ! -f "$session/reset-files" ]; then
-        (cd "$profile/config" && find . -type f -name '*.cfg' | sed 's|^./||' | sort) > "$session/reset-files.tmp"
+        (cd "$profile/config" && find . -type f \( -name '*.cfg' -o \( -name '*.opt' \( -path './Gambatte/*' -o -path './gpSP/*' -o -path './mGBA/*' \) \) \) | sed 's|^./||' | sort) > "$session/reset-files.tmp"
         mv "$session/reset-files.tmp" "$session/reset-files"
     fi
     while IFS= read -r rel; do
@@ -110,7 +117,7 @@ fi
 # apply our display keys. Never copy the user's old overrides back here.
 {
     (cd "$assets/baseline" && find . -type f -name '*.cfg')
-    (cd "$src" && find . -type f -name '*.cfg')
+    (cd "$src" && find . -type f \( -name '*.cfg' -o -name '*.opt' \))
 } | sed 's|^./||' | sort -u > "$session/files.tmp"
 mv "$session/files.tmp" "$session/files"
 while IFS= read -r rel; do
