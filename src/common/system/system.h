@@ -39,34 +39,47 @@ void set_system_shutdown(void)
  */
 void system_powersave(bool enabled)
 {
-    static uint32_t saved_min_freq;
+    static uint32_t saved_clock_mhz, saved_min_freq;
     static char saved_governor[16];
+    static bool active = false;
     FILE *fp;
 
     if (enabled) {
+        if (active)
+            return;
         char buffer[128];
         FILE *pipe = popen("cpuclock", "r");
-
-        if (pipe) {
-            while (fgets(buffer, sizeof(buffer), pipe) != NULL) {
-                saved_min_freq = atoi(buffer);
-            }
-        }
-
-        pclose(pipe);
+        if (!pipe)
+            return;
+        saved_clock_mhz = 0;
+        if (fgets(buffer, sizeof(buffer), pipe))
+            sscanf(buffer, "%u", &saved_clock_mhz);
+        int status = pclose(pipe);
+        if (status != 0 || saved_clock_mhz < 100 || saved_clock_mhz > 2400)
+            return; // Never apply a CPU state that cannot be restored.
 
         // save values for restoring later
+        saved_governor[0] = '\0';
+        saved_min_freq = UINT32_MAX;
         file_get(fp, CPU_SCALING_GOVERNOR, "%15s", saved_governor);
+        file_get(fp, CPU_SCALING_MIN_FREQ, "%u", &saved_min_freq);
+        if (!saved_governor[0] || saved_min_freq == UINT32_MAX)
+            return;
+        active = true;
         // set powersaving values
-        file_put(fp, CPU_SCALING_MIN_FREQ, "%u", 0);
+        file_put(fp, CPU_SCALING_MIN_FREQ, "%u", 0U);
         file_put(fp, CPU_SCALING_GOVERNOR, "%s", "powersave");
     }
     else {
+        if (!active)
+            return;
         // restore
-        char sCommand[15];
-        sprintf(sCommand, "cpuclock %u", saved_min_freq);
+        char sCommand[32];
+        snprintf(sCommand, sizeof(sCommand), "cpuclock %u", saved_clock_mhz);
         system(sCommand);
+        file_put(fp, CPU_SCALING_MIN_FREQ, "%u", saved_min_freq);
         file_put(fp, CPU_SCALING_GOVERNOR, "%s", saved_governor);
+        active = false;
     }
 }
 

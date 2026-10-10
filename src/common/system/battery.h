@@ -14,7 +14,7 @@ static bool battery_is_charging = false;
 /**
  * @brief Retrieve the current battery percentage as reported by batmon
  *
- * @return int : Battery percentage (0-100) or 500 if charging
+ * @return int : Battery percentage (0-100), 500 if charging, or -1 if unavailable
  */
 
 int battery_getPercentage(void)
@@ -46,8 +46,8 @@ int battery_getPercentage(void)
 #endif
 #endif
 
-    if (percentage == -1)
-        percentage = 0; // show zero when percBat not found
+    if (percentage != 500 && (percentage < 0 || percentage > 100))
+        return -1;
 
     return percentage;
 }
@@ -74,6 +74,15 @@ bool battery_isCharging(void)
         return charging == '1';
     }
     else if (IS_MIYOO_PLUS_OR_FLIP()) {
+        // UI render loops may call this many times per second.
+        static bool cached = false, cached_charging = true;
+        static uint32_t last_check;
+        uint32_t now = (uint32_t)getMilliseconds();
+        if (cached && now - last_check < 500)
+            return cached_charging;
+        last_check = now;
+        cached = true;
+        cached_charging = true;
         char *cmd = "cd /customer/app/ ; ./axp_test";
         int batJsonSize = 100;
         char buf[batJsonSize];
@@ -87,8 +96,10 @@ bool battery_isCharging(void)
             sscanf(buf, "{\"battery\":%*d, \"voltage\":%*d, \"charging\":%d}",
                    &charge_number);
         }
-        pclose(fp);
-        return charge_number == 3;
+        if (pclose(fp) != 0)
+            charge_number = 3;
+        cached_charging = charge_number == 3;
+        return cached_charging;
     }
     return false;
 #else
@@ -114,6 +125,8 @@ bool battery_hasChanged(int ticks, int *out_percentage)
 
     if (file_isModified("/tmp/percBat", &battery_last_modified)) {
         int current_percentage = battery_getPercentage();
+        if (current_percentage < 0)
+            return false;
 
         if (current_percentage != *out_percentage) {
             *out_percentage = current_percentage;

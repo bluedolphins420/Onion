@@ -31,7 +31,7 @@ void getDeviceModel(void)
 void getDeviceSerial(void)
 {
     FILE *fp;
-    file_get(fp, "/tmp/deviceSN", "%[^\n]", DEVICE_SN);
+    file_get(fp, "/tmp/deviceSN", "%12[^\n]", DEVICE_SN);
 }
 
 #endif // DEVICE_MODEL_H__

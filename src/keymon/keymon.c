@@ -386,7 +386,8 @@ void suspend_exec(int timeout, bool lid_triggered)
 {
     // Keep the initiating close even if the lid opens during sleep setup.
     int suspend_lid_state = lid_triggered ? 0 : read_lid_state();
-    keyinput_disable();
+    if (!keyinput_disable())
+        return;
 
     // pause playActivity
     system("playActivity stop_all");
@@ -552,7 +553,9 @@ void cpuClockHotkey(int adjust)
     char cpuclockstr[5];
 
     // Read current CPU clock
-    int ret = process_start_read_return("cpuclock", cpuclockstr);
+    int ret = process_start_read_return("cpuclock", cpuclockstr, sizeof(cpuclockstr));
+    if (ret != 0)
+        return;
     int cpuclock = atoi(cpuclockstr);
     printf_debug("Current CPU clock: %d\n", cpuclock);
     cpuclock += adjust;
@@ -571,7 +574,7 @@ void cpuClockHotkey(int adjust)
     // Set new CPU clock
     char cmd[STR_MAX];
     snprintf(cmd, STR_MAX, "cpuclock %d", cpuclock);
-    ret = process_start_read_return(cmd, cpuclockstr);
+    ret = process_start_read_return(cmd, cpuclockstr, sizeof(cpuclockstr));
     if (ret == 0) {
         printf_debug("Updated CPU clock: %s\n", cpuclockstr);
         char osd_txt[STR_MAX];
@@ -631,7 +634,9 @@ int main(void)
 
     if (HAS_AXP()) {
         // set hardware poweroff time to 10s
-        axp_write(0x36, axp_read(0x36) | 3);
+        int power_config = axp_read(0x36);
+        if (power_config >= 0)
+            axp_write(0x36, power_config | 3);
     }
 
     settings_init();
@@ -1180,7 +1185,9 @@ int main(void)
         }
 
         // Quit RetroArch / auto-save when battery too low
-        if (settings.low_battery_autosave_at && battery_getPercentage() <= settings.low_battery_autosave_at && check_autosave()) {
+        int battery_percentage = battery_getPercentage();
+        if (settings.low_battery_autosave_at && battery_percentage >= 0 &&
+            battery_percentage <= settings.low_battery_autosave_at && check_autosave()) {
             temp_flag_set(".lowBat", true);
             screenshot_system();
             terminate_retroarch();

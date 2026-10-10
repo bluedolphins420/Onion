@@ -1,0 +1,8 @@
+{
+  "static/build": "880d2c229c149fb17a093971d83c6715ecc2b25e",
+  "static/packages": "c392a22a442b5022b0327c448b291c29dd2a7c4f",
+  "static/configs": "8ce3d522e78cc433c96bdcf2a23a7342e5dc01e5",
+  "static/dist": "eae42f033dea6440883696f6b5cb13c4b5eccf7c",
+  "lib": "cfa1764a98f279edf99eb56da44d692a46837c14",
+  "src/common/system/settings.h": "56c02935f270f5082e2aa5636096100726593ceb"
+}

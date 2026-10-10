@@ -27,6 +27,8 @@ pid_t process_searchpid(const char *commname)
     size_t commlen = strlen(commname);
 
     procdp = opendir("/proc");
+    if (!procdp)
+        return 0;
     while ((dir = readdir(procdp))) {
         if (dir->d_type == DT_DIR) {
             pid = atoi(dir->d_name);
@@ -34,8 +36,11 @@ pid_t process_searchpid(const char *commname)
                 sprintf(fname, "/proc/%d/comm", pid);
                 FILE *fp = fopen(fname, "r");
                 if (fp) {
-                    fscanf(fp, "%127s", comm);
+                    char *line = fgets(comm, sizeof(comm), fp);
                     fclose(fp);
+                    if (!line)
+                        continue;
+                    comm[strcspn(comm, "\r\n")] = '\0';
                     if (!strncmp(comm, commname, commlen)) {
                         ret = pid;
                         break;
@@ -92,10 +97,13 @@ bool process_start(const char *pname, const char *args, const char *home,
     return true;
 }
 
-bool process_start_read_return(const char *cmdline, char *out_str)
+int process_start_read_return(const char *cmdline, char *out_str, size_t out_size)
 {
-    char buffer[255] = "";
-    char *result = NULL;
+    char buffer[256];
+    bool have_output = false, truncated = false;
+    if (!out_str || out_size == 0)
+        return -1;
+    out_str[0] = '\0';
 
     FILE *pipe = popen(cmdline, "r");
     if (pipe == NULL) {
@@ -104,17 +112,21 @@ bool process_start_read_return(const char *cmdline, char *out_str)
     }
 
     while (fgets(buffer, sizeof(buffer), pipe) != NULL) {
-        result = strdup(buffer);
+        size_t length = strcspn(buffer, "\r\n");
+        if (length >= out_size || (length == sizeof(buffer) - 1 && !feof(pipe))) {
+            truncated = true;
+            continue;
+        }
+        memcpy(out_str, buffer, length);
+        out_str[length] = '\0';
+        have_output = true;
     }
 
-    pclose(pipe);
-    if (result != NULL) {
-        result[strlen(buffer) - 1] = '\0';
-        strcpy(out_str, result);
-        free(result);
-    }
-    else {
-        strcpy(out_str, "");
+    int read_error = ferror(pipe);
+    int status = pclose(pipe);
+    if (status != 0 || read_error || truncated || !have_output) {
+        out_str[0] = '\0';
+        return -1;
     }
     return 0;
 }

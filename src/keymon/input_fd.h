@@ -1,5 +1,6 @@
 #ifndef KEYMON_INPUT_FD_H__
 #define KEYMON_INPUT_FD_H__
+#include <errno.h>
 
 #include <linux/fb.h>
 #include <linux/input.h>
@@ -56,9 +57,10 @@ void _ignoreQueue_add(int code, int value)
 
 bool keyinput_isValid(void)
 {
-    read(input_fd, &ev, sizeof(ev));
+    if (read(input_fd, &ev, sizeof(ev)) != sizeof(ev))
+        return false;
 
-    if (ev.type != EV_KEY || ev.value > REPEAT)
+    if (ev.type != EV_KEY || ev.value < RELEASED || ev.value > REPEAT)
         return false;
 
     for (int i = 0; i < ignore_queue_count; i++) {
@@ -106,15 +108,20 @@ void keyinput_sendMulti(int n, int code_value_pairs[n][2])
  * @brief stop input event for other processes
  *
  */
-void keyinput_disable(void)
+bool keyinput_disable(void)
 {
     if (keyinput_disabled)
-        return;
-    while (ioctl(input_fd, EVIOCGRAB, 1) < 0) {
+        return true;
+    for (int attempt = 0; attempt < 5; attempt++) {
+        if (ioctl(input_fd, EVIOCGRAB, 1) == 0) {
+            keyinput_disabled = true;
+            return true;
+        }
+        if (errno != EINTR && errno != EBUSY)
+            break;
         usleep(100000);
     }
-    keyinput_disabled = true;
-    print_debug("Keyinput disabled");
+    return false;
 }
 
 /**
@@ -125,11 +132,15 @@ void keyinput_enable(void)
 {
     if (!keyinput_disabled)
         return;
-    while (ioctl(input_fd, EVIOCGRAB, 0) < 0) {
+    for (int attempt = 0; attempt < 5; attempt++) {
+        if (ioctl(input_fd, EVIOCGRAB, 0) == 0 || errno == ENODEV || errno == EBADF) {
+            keyinput_disabled = false;
+            return;
+        }
+        if (errno != EINTR && errno != EBUSY)
+            return;
         usleep(100000);
     }
-    keyinput_disabled = false;
-    print_debug("Keyinput enabled");
 }
 
 #endif // KEYMON_INPUT_FD_H__

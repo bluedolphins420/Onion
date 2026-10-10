@@ -22,6 +22,8 @@ int axp_write(unsigned char address, unsigned char val)
     unsigned char buf[2];
     int ret;
     int fd = open(AXPDEV, O_RDWR);
+    if (fd < 0)
+        return -1;
     ioctl(fd, I2C_TIMEOUT, 5);
     ioctl(fd, I2C_RETRIES, 1);
 
@@ -37,7 +39,7 @@ int axp_write(unsigned char address, unsigned char val)
     ret = ioctl(fd, I2C_RDWR, &packets);
 
     close(fd);
-    if (ret < 0)
+    if (ret != 1)
         return -1;
     return 0;
 }
@@ -46,9 +48,11 @@ int axp_read(unsigned char address)
 {
     struct i2c_msg msg[2];
     struct i2c_rdwr_ioctl_data packets;
-    unsigned char val;
+    unsigned char val = 0;
     int ret;
     int fd = open(AXPDEV, O_RDWR);
+    if (fd < 0)
+        return -1;
     ioctl(fd, I2C_TIMEOUT, 5);
     ioctl(fd, I2C_RETRIES, 1);
 
@@ -66,7 +70,7 @@ int axp_read(unsigned char address)
     ret = ioctl(fd, I2C_RDWR, &packets);
 
     close(fd);
-    if (ret < 0)
+    if (ret != 2)
         return -1;
     return val;
 }
@@ -84,12 +88,16 @@ int axp_lcd_set(int value)
 
     if (res == 0) {
         int val = axp_read(0x10);
+        if (val < 0)
+            return -1;
         val |= 0x02;
         res = axp_write(0x10, val);
     }
 
     if (res == 0) {
         int val = axp_read(0x12);
+        if (val < 0)
+            return -1;
         val |= 0x80;
         res = axp_write(0x12, val);
     }

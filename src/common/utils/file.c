@@ -83,70 +83,77 @@ bool mkdirs(const char *dir_path)
 
 void file_readLastLine(const char *filename, char *out_str)
 {
-    FILE *fd;
-    int size;
-    char buff[256];
-    char *token = NULL;
-
-    if ((fd = fopen(filename, "rb")) != NULL) {
-        // get file size
-        fseek(fd, 0L, SEEK_END);
-        size = ftell(fd);
-        fseek(fd, 0L, SEEK_SET);
-
-        int max_len = size < 255 ? size + 1 : 255;
-        if (max_len <= 1)
-            return;
-
-        // get the last line
-        fseek(fd, -max_len, SEEK_END);
-        fread(buff, max_len - 1, 1, fd);
-
-        // cleanup
+    out_str[0] = '\0';
+    FILE *fd = fopen(filename, "rb");
+    if (!fd)
+        return;
+    char buffer[256];
+    if (fseek(fd, 0, SEEK_END) != 0) {
         fclose(fd);
-        buff[max_len - 1] = '\0';
-
-        token = strtok(buff, "\n");
-        while (token != NULL) {
-            if (strlen(token) > 0)
-                snprintf(out_str, 255, "%s", token);
-            token = strtok(NULL, "\n");
-        }
+        return;
+    }
+    long size = ftell(fd);
+    if (size <= 0 || fseek(fd, size > 255 ? size - 255 : 0, SEEK_SET) != 0) {
+        fclose(fd);
+        return;
+    }
+    size_t bytes = fread(buffer, 1, sizeof(buffer) - 1, fd);
+    buffer[bytes] = '\0';
+    fclose(fd);
+    char *line = strtok(buffer, "\n");
+    while (line) {
+        snprintf(out_str, 255, "%s", line);
+        line = strtok(NULL, "\n");
     }
 }
 
 char *file_read(const char *path)
 {
-    FILE *f = NULL;
-    char *buffer = NULL;
-    long length = 0;
-
-    if (!exists(path))
+    FILE *f = fopen(path, "rb");
+    if (!f)
         return NULL;
-
-    if ((f = fopen(path, "rb"))) {
-        fseek(f, 0, SEEK_END);
-        length = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        buffer = (char *)malloc((length + 1) * sizeof(char));
-        if (buffer)
-            fread(buffer, sizeof(char), length, f);
+    if (fseek(f, 0, SEEK_END) != 0) {
         fclose(f);
+        return NULL;
     }
-    buffer[length] = '\0';
-
+    long length = ftell(f);
+    if (length < 0 || (unsigned long)length >= SIZE_MAX || fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        return NULL;
+    }
+    char *buffer = malloc((size_t)length + 1);
+    if (!buffer) {
+        fclose(f);
+        return NULL;
+    }
+    size_t bytes = fread(buffer, 1, (size_t)length, f);
+    if (ferror(f)) {
+        free(buffer);
+        fclose(f);
+        return NULL;
+    }
+    buffer[bytes] = '\0';
+    fclose(f);
     return buffer;
 }
 
 bool file_write(const char *path, const char *str, uint32_t len)
 {
-    uint32_t fd;
-    if ((fd = open(path, O_WRONLY)) == 0)
+    int fd = open(path, O_WRONLY);
+    if (fd < 0)
         return false;
-    if (write(fd, str, len) == -1)
-        return false;
-    close(fd);
-    return true;
+    uint32_t written = 0;
+    while (written < len) {
+        ssize_t result = write(fd, str + written, len - written);
+        if (result < 0 && errno == EINTR)
+            continue;
+        if (result <= 0) {
+            close(fd);
+            return false;
+        }
+        written += (uint32_t)result;
+    }
+    return close(fd) == 0;
 }
 
 void file_copy(const char *src_path, const char *dest_path)
@@ -165,7 +172,7 @@ char *file_removeExtension(const char *myStr)
     if (retStr == NULL)
         return NULL;
     strcpy(retStr, myStr);
-    if ((lastExt = strrchr(retStr, '.')) != NULL && *(lastExt + 1) != ' ' && *(lastExt + 2) != '\0')
+    if ((lastExt = strrchr(retStr, '.')) != NULL && strlen(lastExt) > 2 && *(lastExt + 1) != ' ')
         *lastExt = '\0';
     return retStr;
 }

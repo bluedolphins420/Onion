@@ -19,14 +19,14 @@ def function(signature, source=SOURCE):
     start = source.index(signature + '\n{')
     return source[start:source.index('\n}', start) + 2]
 
-def check(name, code, cases):
+def check(name, code, cases, link_flags=()):
     with tempfile.TemporaryDirectory() as folder:
         src = Path(folder) / 'test.c'
         exe = Path(folder) / 'test'
         src.write_text(code)
         subprocess.run(['gcc', '-std=gnu11', '-O1', '-g', '-no-pie',
                         '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
-                        str(src), '-o', str(exe)], check=True)
+                        str(src), '-o', str(exe), *link_flags], check=True)
         for case in cases:
             result = subprocess.run([str(exe), str(case)], text=True, capture_output=True,
                 timeout=10, env=dict(os.environ, ASAN_OPTIONS='detect_leaks=0'))
@@ -34,6 +34,7 @@ def check(name, code, cases):
             print(f'PASS {name}/{case}: {result.stdout.strip()}', flush=True)
 
 sleep = fixtures['SLEEP_STUBS'].replace('#include <stdio.h>', '#include <stdio.h>\n#include <errno.h>')
+sleep = sleep.replace('void keyinput_disable(void) {}', 'bool keyinput_disable(void) {return true;}')
 sleep = sleep.replace('int scenario, polls,', 'int last_lid_state=-1;\nint scenario, polls,')
 sleep = sleep.replace('if(scenario==5) return 0;', 'if(scenario>=5 && scenario!=6) return 0;')
 sleep = sleep.replace('assert(++polls<=5);', '''assert(++polls<=5);
@@ -112,12 +113,14 @@ check('charging', r'''
 #include <assert.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdint.h>
 #define PLATFORM_MIYOOMINI
 #define MIYOO283 283
 #define GPIO_DIR1 "/mock/"
 #define GPIO_DIR2 "/mock/"
 #define IS_MIYOO_PLUS_OR_FLIP() (DEVICE_ID==285 || DEVICE_ID==354)
 int DEVICE_ID=285,scenario;
+int getMilliseconds(void) {return 0;}
 void file_write(const char *p,const char *v,int n) {}
 FILE *audit_popen(const char *cmd,const char *mode) {
     if(scenario==0)return NULL;

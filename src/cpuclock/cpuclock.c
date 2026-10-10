@@ -17,7 +17,7 @@
 
 void *pll_map;
 
-void print_clock(void)
+int print_clock(void)
 {
     uint32_t rate;
     uint32_t lpf_value;
@@ -30,6 +30,8 @@ void print_clock(void)
     post_div = p16[0x232] + 1;
     if (lpf_value == 0)
         lpf_value = (p8[0x2C2 << 1] << 16) + (p8[0x2C1 << 1] << 8) + p8[0x2C0 << 1];
+    if (lpf_value == 0)
+        return 1;
 
     /*
 	 * Calculate LPF value for DFS
@@ -40,7 +42,8 @@ void print_clock(void)
     rate = (divsrc / lpf_value * 2 / post_div * 16);
 
     // print MHz
-    printf("%d\n", rate / 1000000);
+    printf("%u\n", rate / 1000000);
+    return 0;
 }
 
 void writefile(const char *fname, char *str)
@@ -111,12 +114,20 @@ int main(int argc, char *argv[])
     }
 
     int fd_mem = open("/dev/mem", O_RDWR);
+    if (fd_mem < 0)
+        return 1;
     pll_map = mmap(0, PLL_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd_mem, BASE_REG_MPLL_PA);
+    if (pll_map == MAP_FAILED) {
+        close(fd_mem);
+        return 1;
+    }
 
     int clock = 0;
     if (argc == 1) {
-        print_clock();
-        return 0;
+        int result = print_clock();
+        munmap(pll_map, PLL_SIZE);
+        close(fd_mem);
+        return result;
     }
     if (argc == 2)
         clock = atoi(argv[1]);
