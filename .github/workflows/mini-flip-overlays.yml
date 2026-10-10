@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update -qq && sudo apt-get install -y -qq gcc-arm-linux-gnueabihf qemu-user busybox-static jq
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq gcc-arm-linux-gnueabihf qemu-user busybox-static jq dosfstools
       - name: Build and test CRT normalizer
         run: |
           gcc -g -fsanitize=address,undefined -fPIC -shared tools/mini_flip_crt.c -o /tmp/mini_flip_crt-host.so
@@ -23,6 +23,14 @@ jobs:
           sha256sum static/build/App/AllOverlays/filters/mini_flip_crt.so
       - run: python3 tests/mini_flip_all_overlays.py
       - run: OVERLAY_TEST_SHELL='busybox sh' python3 tests/mini_flip_all_overlays.py
+      - name: Validate SD filesystem compatibility
+        run: |
+          truncate -s 256M /tmp/overlay-fat.img
+          mkfs.vfat /tmp/overlay-fat.img
+          mkdir /tmp/overlay-fat
+          sudo mount -o loop,uid=$(id -u),gid=$(id -g) /tmp/overlay-fat.img /tmp/overlay-fat
+          OVERLAY_TEST_ROOT=/tmp/overlay-fat python3 tests/mini_flip_all_overlays.py
+          sudo umount /tmp/overlay-fat
       - run: python3 tests/mini_flip_display.py
       - run: python3 tests/onion_community_compatibility.py
       - uses: actions/upload-artifact@v4

@@ -3,8 +3,8 @@ import os,shlex,subprocess,tempfile,shutil,json,struct,zlib
 REPO=Path(__file__).resolve().parents[1]
 ROOT=REPO.parent
 SHELL=shlex.split(os.environ.get('OVERLAY_TEST_SHELL','sh'))
-SCRIPT=REPO/'static/build/App/AllOverlays/apply.sh'
-BASE=ROOT/'research/all-overlay-tests';BASE.mkdir(parents=True,exist_ok=True)
+SCRIPT=Path(os.environ.get('OVERLAY_TEST_SCRIPT',str(REPO/'static/build/App/AllOverlays/apply.sh')))
+BASE=Path(os.environ.get('OVERLAY_TEST_ROOT',str(ROOT/'research/all-overlay-tests')));BASE.mkdir(parents=True,exist_ok=True)
 def cfg(text):return dict((k.strip(),v.strip().strip('"')) for k,v in [l.split('=',1) for l in text.splitlines() if '=' in l])
 with tempfile.TemporaryDirectory(dir=BASE,prefix='SD card ') as td:
  sd=Path(td)
