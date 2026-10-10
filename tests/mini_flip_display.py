@@ -50,7 +50,7 @@ def exercise(shell):
         game=target.parent/'My Game.cfg';game.write_text('input_overlay = "custom.cfg"\n')
         directory=target.parent/'GB.cfg';directory.write_text('video_scale_integer = "false"\n')
         state=profile/'.mini-flip-display-v1'
-        env=dict(os.environ,DEVICE_ID='285',MINIFLIP_SD=str(sd),MINIFLIP_RES='752x560')
+        env=dict(os.environ,DEVICE_ID='285',MINIFLIP_SD=str(sd),MINIFLIP_RES='752x560',MINIFLIP_LOCK=str(sd/'display.lock'))
         def run(action,code=0,**changes):
             result=subprocess.run(shell+[str(SCRIPT),action],env=dict(env,**changes),capture_output=True,text=True,timeout=30)
             assert result.returncode==code,(action,result.stdout,result.stderr)
@@ -76,8 +76,8 @@ def exercise(shell):
         run('restore',1);assert target.read_bytes()==edited
         assert (state/'original/Gambatte/Gambatte.cfg').read_text()==original
         run('restore',1);assert target.read_bytes()==edited
-        run('balanced');(state/'lock').mkdir();(state/'lock/pid').write_text(str(os.getpid()))
-        run('clean',1);(state/'lock/pid').unlink();(state/'lock').rmdir()
+        run('balanced');(sd/'display.lock').mkdir();(sd/'display.lock/pid').write_text(str(os.getpid()))
+        run('clean',1);(sd/'display.lock/pid').unlink();(sd/'display.lock').rmdir()
         run('bad',2);run('boot',2,MINIFLIP_RES='bad')
         # A missing overlay aborts before config mutation.
         before=target.read_bytes();(sd/'.tmp_update/res/display/overlays/752x560/gba.png').unlink()

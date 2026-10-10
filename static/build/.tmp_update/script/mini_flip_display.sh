@@ -14,17 +14,19 @@ res=640x480
 res=${MINIFLIP_RES:-$res}
 case "$res" in 640x480|752x560) ;; *) exit 2 ;; esac
 mkdir -p "$state"
+lock=${MINIFLIP_LOCK:-/tmp/mini_flip_display.lock}
+# Keep the lock in volatile /tmp so power loss cannot persist it on the SD.
 # A stale lock is removable after restart; never steal a live migration.
-if ! mkdir "$state/lock" 2>/dev/null; then
-    owner=$(cat "$state/lock/pid" 2>/dev/null || true)
+if ! mkdir "$lock" 2>/dev/null; then
+    owner=$(cat "$lock/pid" 2>/dev/null || true)
     case "$owner" in ''|*[!0-9]*) exit 1 ;; esac
     if kill -0 "$owner" 2>/dev/null; then exit 1; fi
-    rm -f "$state/lock/pid"
-    rmdir "$state/lock" || exit 1
-    mkdir "$state/lock" || exit 1
+    rm -f "$lock/pid"
+    rmdir "$lock" || exit 1
+    mkdir "$lock" || exit 1
 fi
-echo $$ > "$state/lock/pid"
-trap 'rm -f "$state/lock/pid"; rmdir "$state/lock"' EXIT
+echo $$ > "$lock/pid"
+trap 'rm -f "$lock/pid"; rmdir "$lock"' EXIT
 trap 'exit 1' HUP INT TERM
 if [ "$action" = restore ]; then
     touch "$state/disabled"
