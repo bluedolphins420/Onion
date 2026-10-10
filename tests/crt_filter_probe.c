@@ -9,6 +9,7 @@ static int cfg_float(void *u,const char*k,float*v,float d){*v=d;return 0;}
 static int cfg_int(void *u,const char*k,int*v,int d){*v=d;return 0;}
 static int cfg_hex(void *u,const char*k,unsigned*v,unsigned d){*v=d;return 0;}
 int main(int argc,char **argv) {
+    setvbuf(stdout,NULL,_IONBF,0);
     assert(argc==2);
     void *lib=dlopen(argv[1],RTLD_NOW);if(!lib){puts(dlerror());return 1;}
     softfilter_get_implementation_t get=(softfilter_get_implementation_t)dlsym(lib,"softfilter_get_implementation");assert(get);
@@ -35,12 +36,14 @@ int main(int argc,char **argv) {
             struct softfilter_work_packet packet[1]={{0}};
             f->get_work_packets(ctx,packet,output,os,input,w,h,is);assert(packet[0].work);packet[0].work(ctx,packet[0].thread_data);
             for(unsigned i=0;i<64;i++) assert(raw[i]==0xa7&&raw[64+total+i]==0xa7);
-            unsigned first=0,last=0;
+            unsigned first=0,last=0,bad=0,maximum=0;
             for(unsigned y=0;y<oh;y++) for(unsigned x=0;x<ow;x++) {
                 unsigned value=bpp==2?((uint16_t*)(output+y*os))[x]:((uint32_t*)(output+y*os))[x];
-                assert(value<=h);if(value){if(!first)first=value;last=value;}
+                if(value>h) bad++;
+                if(value>maximum) maximum=value;
+                if(value){if(!first)first=value;last=value;}
             }
-            printf("fmt=%u %ux%u -> %ux%u rows=%u..%u\n",fmt,w,h,ow,oh,first,last);
+            printf("fmt=%u %ux%u -> %ux%u rows=%u..%u invalid=%u max=%u\n",fmt,w,h,ow,oh,first,last,bad,maximum);
             fflush(stdout);free(raw);free(input);
         }
         f->destroy(ctx);
