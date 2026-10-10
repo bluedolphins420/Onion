@@ -12,7 +12,8 @@ CLEAN=['PCSX-ReARMed','FinalBurn Neo','FB Alpha','MAME 2003-Plus','MAME 2003-Xtr
 profiles={c+'/'+c+'.cfg':('tv',False,False) for c in TV}
 profiles.update({c+'/'+c+'.cfg':('clean',None,False) for c in CLEAN})
 profiles['PCSX-ReARMed/PCSX-ReARMed.cfg']=('clean',False,False)
-for c in ['Gambatte','TGB Dual']: profiles[c+'/'+c+'.cfg']=('gb',True,True)
+profiles['Gambatte/Gambatte.cfg']=('gb',True,True)
+profiles['TGB Dual/TGB Dual.cfg']=('clean',True,True)
 for c in ['gpSP','Beetle GBA','VBA-M','VBA Next']: profiles[c+'/'+c+'.cfg']=('gba',True,True)
 profiles['mGBA/GBA.cfg']=('gba',True,True)
 profiles['Beetle NeoPop/Beetle NeoPop.cfg']=('ngp',True,True)

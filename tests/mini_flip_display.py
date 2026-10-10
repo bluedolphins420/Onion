@@ -61,6 +61,7 @@ def exercise(shell):
         assert game.read_text()=='input_overlay = "custom.cfg"\n' and directory.read_text()=='video_scale_integer = "false"\n'
         gba=config/'gpSP/gpSP.cfg';assert parse(gba.read_text())['video_scale_integer']=='true'
         assert parse((config/'mGBA/mGBA.cfg').read_text())['input_overlay_enable']=='false'
+        assert parse((config/'TGB Dual/TGB Dual.cfg').read_text())['input_overlay_enable']=='false'
         assert parse((config/'mGBA/GBA.cfg').read_text())['input_overlay_enable']=='true'
         first=target.read_bytes();run('boot');assert target.read_bytes()==first
         target.write_text(target.read_text()+'user_note = "preserve"\n');edited=target.read_bytes()
