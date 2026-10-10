@@ -47,8 +47,8 @@ jobs:
             echo 'Version label override: 4.5-dev-2bab767'
             echo 'Hardware validation: not performed.'
             echo "Build: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-            echo 'Submodule revisions:'
-            git -C .. submodule status --recursive
+            echo 'Direct submodule revisions pinned in upstream source:'
+            git -c safe.directory="$GITHUB_WORKSPACE" -C .. ls-tree -r HEAD third-party
           } > BUILD-INFO.txt
       - uses: actions/upload-artifact@v4
         with:
