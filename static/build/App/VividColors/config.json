@@ -1,0 +1,6 @@
+{
+  "label": "Vivid handheld colors",
+  "icon": "../../Icons/Default/app/retroarch.png",
+  "launch": "launch.sh",
+  "description": "Reversible GB/GBC/GBA color settings for Mini Flip."
+}
