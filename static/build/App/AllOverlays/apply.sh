@@ -104,7 +104,7 @@ if [ "$action" = apply ]; then
             done
         done < "$app/cores.txt"
         [ ! -f "$sd/Emu/NDS/resources/settings.json" ] || echo 'Emu/NDS/resources/settings.json'
-    } | sort -u > "$session/files.tmp"
+    } | sort -u | awk '!seen[tolower($0)]++' > "$session/files.tmp"
     mv "$session/files.tmp" "$session/files"
 fi
 nds_ready=0

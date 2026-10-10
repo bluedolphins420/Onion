@@ -8,7 +8,6 @@ SameDuck
 Game & Watch
 GW
 VecX
-vecx
 mGBA
 FCEUmm
 Supafaust

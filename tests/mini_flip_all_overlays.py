@@ -32,6 +32,8 @@ with tempfile.TemporaryDirectory(dir=BASE,prefix='SD card ') as td:
   r=subprocess.run(SHELL+[SCRIPT.as_posix(),action],env=dict(env,**changes),capture_output=True,text=True,timeout=60);assert r.returncode==code,(r.stdout,r.stderr)
  run('apply',DEVICE_ID='354');assert globalcfg.read_bytes()==originals[globalcfg]
  run('apply')
+ manifest=(sd/'Saves/CurrentProfile/.mini-flip-all-overlays-v1/snapshot-1/files').read_text().splitlines()
+ assert len(manifest)==len(set(x.lower() for x in manifest))
  assert cfg(snesopt.read_text())=={'snes9x_overscan':'disabled','audio':'keep'}
  assert all(p.read_bytes()==originals[p] for p in [gb,gba,opt,save,remap])
  assert cfg(arcade.read_text())['input_overlay'].endswith('/tv.cfg') and cfg(arcade.read_text())['video_scale_integer']=='true'
