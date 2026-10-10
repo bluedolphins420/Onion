@@ -1,0 +1,15 @@
+name: Audit Mini Flip release behavior
+on:
+  push:
+    branches: [mini-flip-release-audit]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reproduce release defects with simulated hardware
+        run: python3 tests/mini_flip_release_audit.py
