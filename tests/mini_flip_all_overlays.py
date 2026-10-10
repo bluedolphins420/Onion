@@ -1,10 +1,10 @@
 from pathlib import Path
-import os,subprocess,tempfile,shutil,json,struct,zlib
+import os,shlex,subprocess,tempfile,shutil,json,struct,zlib
 REPO=Path(__file__).resolve().parents[1]
 ROOT=REPO.parent
-SHELL=os.environ.get('OVERLAY_TEST_SHELL','sh')
+SHELL=shlex.split(os.environ.get('OVERLAY_TEST_SHELL','sh'))
 SCRIPT=REPO/'static/build/App/AllOverlays/apply.sh'
-BASE=ROOT/'research/all-overlay-tests';BASE.mkdir(exist_ok=True)
+BASE=ROOT/'research/all-overlay-tests';BASE.mkdir(parents=True,exist_ok=True)
 def cfg(text):return dict((k.strip(),v.strip().strip('"')) for k,v in [l.split('=',1) for l in text.splitlines() if '=' in l])
 with tempfile.TemporaryDirectory(dir=BASE,prefix='SD card ') as td:
  sd=Path(td)
@@ -22,15 +22,17 @@ with tempfile.TemporaryDirectory(dir=BASE,prefix='SD card ') as td:
  ws=put('Saves/CurrentProfile/config/Beetle WonderSwan/Portrait.cfg','video_rotation = "1"\n')
  gg=put('Saves/CurrentProfile/config/PicoDrive/GG.cfg','video_dingux_ipu_keep_aspect = "false"\n')
  opt=put('Saves/CurrentProfile/config/gpSP/gpSP.opt','gpsp_color_correction = "disabled"\n')
+ snesopt=put('Saves/CurrentProfile/config/Snes9x/Game.opt','snes9x_overscan = "enabled"\naudio = "keep"\n')
  save=put('Saves/game.srm','SAVE');remap=put('Saves/CurrentProfile/config/controls.rmp','REMAP')
  nds=put('Emu/NDS/resources/settings.json',json.dumps(dict(overlay=0,mode=8,pen=3,maxcpu=1600)))
  for p in (sd/'.tmp_update/res/display/profiles').rglob('*'):
   if p.is_file():originals[p]=p.read_bytes()
  env=dict(os.environ,DEVICE_ID='285',MINIFLIP_SD=sd.as_posix(),MINIFLIP_RES='752x560',MINIFLIP_LOCK=(sd/'display.lock').as_posix(),MINIFLIP_JQ=shutil.which('jq'))
  def run(action,code=0,**changes):
-  r=subprocess.run([SHELL,SCRIPT.as_posix(),action],env=dict(env,**changes),capture_output=True,text=True,timeout=60);assert r.returncode==code,(r.stdout,r.stderr)
+  r=subprocess.run(SHELL+[SCRIPT.as_posix(),action],env=dict(env,**changes),capture_output=True,text=True,timeout=60);assert r.returncode==code,(r.stdout,r.stderr)
  run('apply',DEVICE_ID='354');assert globalcfg.read_bytes()==originals[globalcfg]
  run('apply')
+ assert cfg(snesopt.read_text())=={'snes9x_overscan':'disabled','audio':'keep'}
  assert all(p.read_bytes()==originals[p] for p in [gb,gba,opt,save,remap])
  assert cfg(arcade.read_text())['input_overlay'].endswith('/tv.cfg') and cfg(arcade.read_text())['video_scale_integer']=='true'
  assert cfg(ws.read_text())['input_overlay'].endswith('/lcd.cfg') and cfg(ws.read_text())['video_rotation']=='1'

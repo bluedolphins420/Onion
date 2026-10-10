@@ -1,5 +1,5 @@
 #!/bin/sh
-# Overlay-only extension for Community4. Leave color/core options untouched.
+# Overlay-only extension for Community4. Preserve handheld color options.
 set -eu
 [ "${DEVICE_ID:-0}" = 285 ] || exit 0
 sd=${MINIFLIP_SD:-/mnt/SDCARD}
@@ -46,7 +46,7 @@ fi
 for kind in tv lcd crt; do
     [ -s "$app/assets/$res/$kind.png" ] && [ -s "$app/assets/$res/$kind.cfg" ] || exit 1
 done
-[ -s "$app/filters/crt.filt" ] && [ -s "$app/filters/crt.so" ] || exit 1
+[ -s "$app/filters/crt.filt" ] && [ -s "$app/filters/mini_flip_crt.so" ] || exit 1
 # Stable paths let changing hardware resolution select the right native PNG
 # without overwriting any game overrides or user changes at each boot.
 if [ "$(cat "$app/current/resolution" 2>/dev/null || true)" != "$res" ]; then
@@ -69,6 +69,7 @@ if [ "$action" = apply ]; then
         [ ! -f "$session/files" ] || cat "$session/files"
         echo 'RetroArch/.retroarch/retroarch.cfg'
         (cd "$sd" && find Saves/CurrentProfile/config -type f -name '*.cfg')
+        (cd "$sd" && find Saves/CurrentProfile/config -type f -path '*/Snes9x/*.opt')
         if [ -d "$sd/.tmp_update/res/display/profiles" ]; then
             (cd "$sd" && find .tmp_update/res/display/profiles -type f -name '*.cfg')
         fi
@@ -95,11 +96,12 @@ while IFS= read -r rel; do
     dst="$sd/$rel"
     kind=tv
     case "$rel" in
+        */Snes9x/*.opt) kind=options ;;
         *PCSX*|*SwanStation*|*DuckStation*|*/PSX.cfg) kind=off ;;
         */Gambatte/*|*/gpSP/*|*/Beetle\ GBA/*|*/VBA-M/*|*/VBA\ Next/*|*/Beetle\ NeoPop/*|*/mGBA/GBA.cfg) continue ;;
         */profiles/*/clean/*) kind=off ;;
         */Handy/*|*/Beetle\ Lynx/*|*/Beetle\ WonderSwan/*|*/PokeMini/*|*/Potator/*|*/SameDuck/*|*/TGB\ Dual/*|*/Gearboy/*|*/Meteor/*|*/Game\ \&\ Watch/*|*/GW/*|*/VecX/*|*/vecx/*|*/Arduous/*|*/Mu/*|*/VeMUlator/*|*/SquirrelJME/*|*/mGBA/*|*/GG.cfg) kind=lcd ;;
-        */FCEUmm/*|*/Nestopia/*|*/QuickNES/*|*/Supafaust/*|*/Beetle\ Supafaust/*|*/Snes9x*/*|*/PicoDrive/*|*/Genesis\ Plus\ GX/*|*/Gearsystem/*|*/Beetle\ PCE*/*|*/Beetle\ SuperGrafx/*) kind=crt ;;
+        */FCEUmm/*|*/Supafaust/*|*/Beetle\ Supafaust/*|*/Snes9x*/*|*/PicoDrive/*|*/Genesis\ Plus\ GX/*|*/Gearsystem/*|*/Beetle\ PCE*/*|*/Beetle\ SuperGrafx/*) kind=crt ;;
     esac
     mkdir -p "$(dirname "$dst")" "$session/original/$(dirname "$rel")" "$session/absent/$(dirname "$rel")" "$session/applied/$(dirname "$rel")"
     if [ ! -f "$session/original/$rel" ] && [ ! -f "$session/absent/$rel" ]; then
@@ -108,6 +110,9 @@ while IFS= read -r rel; do
     fi
     if [ "$rel" = Emu/NDS/resources/settings.json ]; then
         "$jq" '.overlay = 1' "$dst" > "$dst.overlay-tmp"
+    elif [ "$kind" = options ]; then
+        awk '{ k=$0; sub(/=.*/,"",k); gsub(/[ \t\r]/,"",k); if(k!="snes9x_overscan") print }' "$dst" > "$dst.overlay-tmp"
+        echo 'snes9x_overscan = "disabled"' >> "$dst.overlay-tmp"
     else
         enabled=true;overlay="/mnt/SDCARD/App/AllOverlays/current/$kind.cfg"
         if [ "$kind" = off ]; then enabled=false;overlay=''; fi

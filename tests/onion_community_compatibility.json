@@ -371,7 +371,7 @@
     "static/build/App/AllOverlays/config.json",
     "static/build/App/AllOverlays/cores.txt",
     "static/build/App/AllOverlays/filters/crt.filt",
-    "static/build/App/AllOverlays/filters/crt.so",
+    "static/build/App/AllOverlays/filters/mini_flip_crt.so",
     "static/build/App/AllOverlays/launch.sh",
     "static/build/App/DisplayBalanced/config.json",
     "static/build/App/DisplayBalanced/launch.sh",
